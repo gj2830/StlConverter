@@ -1,5 +1,7 @@
 # StlConverter
 
+[![Bouwen en testen](https://github.com/gj2830/StlConverter/actions/workflows/build.yml/badge.svg)](https://github.com/gj2830/StlConverter/actions/workflows/build.yml)
+
 Leest en schrijft DesignSpark Mechanical-bestanden (`.rsdocx`, met Parasolid-geometrie) en zet STL- en 3MF-modellen om
 naar exacte vormen: platte vlakken, cilinders en kegels worden herkend en als echte vlakken weggeschreven.
 
@@ -22,9 +24,14 @@ dotnet build StlConverter.slnx -c Release
 dotnet test tests/RsDocx.Tests
 ```
 
-De meeste tests gebruiken testbestanden (`testdata/`) die niet in deze repository staan; zonder die bestanden slagen
-alleen de tests die hun eigen vormen maken.
+De tests gebruiken de modellen in `testdata/`.
 
-## Licentie
+## In English
 
-MIT, zie [LICENSE](LICENSE); `src/Geometry3Sharp` heeft zijn eigen Boost-licentie.
+StlConverter reads and writes DesignSpark Mechanical files (`.rsdocx`, with Parasolid geometry) and converts STL and
+3MF meshes into exact geometry: planes, cylinders and cones are recognised and written as true surfaces. It is the
+file engine of [PushPullMe](https://github.com/gj2830/PushPullMe). Build with the .NET 10 SDK as shown above.
+
+## Licentie / License
+
+MIT, zie [LICENSE](LICENSE); `src/Geometry3Sharp` heeft zijn eigen Boost-licentie (its own Boost license).

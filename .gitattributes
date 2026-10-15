@@ -1,0 +1,8 @@
+# text files with the line endings of the platform they are checked out on; models and images untouched
+* text=auto
+*.png binary
+*.ico binary
+*.rsdocx binary
+*.stl binary
+*.3mf binary
+*.x_b binary
