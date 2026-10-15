@@ -3,7 +3,7 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:h="clr-namespace:HelixToolkit.Wpf;assembly=HelixToolkit.Wpf"
         xmlns:local="clr-namespace:StlConverter"
-        Title="Mesh ➜ Solid" Height="900" Width="1480" Background="{DynamicResource Page}"
+        Title="Mesh ➜ Solid" Icon="pack://application:,,,/StlConverter;component/logo.ico" Height="900" Width="1480" Background="{DynamicResource Page}"
         AllowDrop="True" Drop="Window_Drop" DragOver="Window_DragOver">
     <Window.Resources>
         <ResourceDictionary>
@@ -42,7 +42,13 @@
                 <DockPanel>
                     <Button x:Name="LanguageButton" DockPanel.Dock="Right" Content="🌐  NL" Style="{StaticResource PillButton}" VerticalAlignment="Center"
                             Click="Language_Click" ToolTip="Taal / language: Nederlands · English"/>
-                    <TextBlock Text="Mesh ➜ Solid" FontSize="26" FontWeight="Black" Foreground="{StaticResource AccentGradient}"/>
+                    <!-- the logo, rounded (its light background then reads as a tile, also in the dark theme) -->
+                    <Border Width="42" Height="39" CornerRadius="9" Margin="0,0,10,0" VerticalAlignment="Center">
+                        <Border.Background>
+                            <ImageBrush ImageSource="pack://application:,,,/StlConverter;component/logo.png" Stretch="UniformToFill" RenderOptions.BitmapScalingMode="HighQuality"/>
+                        </Border.Background>
+                    </Border>
+                    <TextBlock Text="Mesh ➜ Solid" FontSize="26" FontWeight="Black" Foreground="{StaticResource AccentGradient}" VerticalAlignment="Center"/>
                 </DockPanel>
                 <TextBlock Text="Van driehoekjes naar échte vlakken, cilinders, bollen en donuts."
                            TextWrapping="Wrap" Foreground="{StaticResource Muted}" Margin="0,0,0,10"/>
