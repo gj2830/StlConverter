@@ -1,0 +1,15 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/Geometry3Sharp/Geometry3Sharp.csproj" />
+    <Project Path="src/RsDocx.Core/RsDocx.Core.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/RsDocx.Tests/RsDocx.Tests.csproj" />
+  </Folder>
+  <Folder Name="/tools/">
+    <Project Path="tools/rsdump/rsdump.csproj" />
+    <Project Path="tools/rsgen/rsgen.csproj" />
+    <Project Path="tools/RsConverterUI/RsConverterUI.csproj" />
+    <Project Path="tools/stl2rsdocx/stl2rsdocx.csproj" />
+  </Folder>
+</Solution>

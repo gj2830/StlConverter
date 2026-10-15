@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- geometry3Sharp (Ryan Schmidt / gradientspace, Boost Software License 1.0, see LICENSE), taken in as source from
+       https://github.com/gradientspace/geometry3Sharp commit ece336493111ffe372a4bfc7fee5026d4127dade (2026-01-09).
+       Own changes: CHANGES.md. -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <RootNamespace>g3</RootNamespace>
+    <AssemblyName>geometry3Sharp</AssemblyName>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <Nullable>disable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <TreatWarningsAsErrors>false</TreatWarningsAsErrors>
+    <WarningLevel>0</WarningLevel>
+    <NoWarn>$(NoWarn);CS0168;CS0169;CS0219;CS0414;CS0162;CS0649;CS0618;CS0659;CS0661;CS0660;CS0108;CS0114;CS1591;CS8981;SYSLIB0011;CA2200</NoWarn>
+  </PropertyGroup>
+</Project>

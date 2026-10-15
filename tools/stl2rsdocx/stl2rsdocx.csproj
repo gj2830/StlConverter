@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\RsDocx.Core\RsDocx.Core.csproj" />
+  </ItemGroup>
+
+  <PropertyGroup>
+    <!-- the bodies of a mesh are recognised in parallel: with the workstation GC the threads mostly wait for each other
+         (obj_1_BCons: 656 s against 387 s with the server GC) -->
+    <ServerGarbageCollection>true</ServerGarbageCollection>
+    <ConcurrentGarbageCollection>true</ConcurrentGarbageCollection>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+
+</Project>

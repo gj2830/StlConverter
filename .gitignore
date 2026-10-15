@@ -1,0 +1,34 @@
+# build output
+bin/
+obj/
+.vs/
+*.user
+
+# generated files and test files (not public)
+output/
+testdata/*
+# the user's own test files (and a small part of a free model, renamed)
+!testdata/kubus.rsdocx
+!testdata/kubus.stl
+!testdata/kubus_kleuren.rsdocx
+!testdata/sleutelrek.rsdocx
+!testdata/sleutelrek.stl
+!testdata/schaaltje.rsdocx
+!testdata/schaaltje.stl
+!testdata/RondeVorm.rsdocx
+!testdata/RondeVorm.stl
+!testdata/boltest.rsdocx
+!testdata/boltest.stl
+!testdata/helix.rsdocx
+!testdata/yubikey.rsdocx
+!testdata/yubikey.stl
+!testdata/bigbox.stl
+!testdata/bigbox_buis.groepen.txt
+!testdata/Spoelhouder.stl
+!testdata/schroefbol.stl
+!testdata/schroefbol.selectie.txt
+/kubus.rsdocx
+/kubus.stl
+
+# notes (kept privately)
+NOTES.md

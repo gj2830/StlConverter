@@ -1,0 +1,19 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Template for the package: an empty DesignSpark document (nothing in it to leak into what is saved) -->
+    <EmbeddedResource Include="SpaceClaim/template.rsdocx" LogicalName="template.rsdocx" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- mesh repair (hole filling, simplification): geometry3Sharp taken in as source -->
+    <ProjectReference Include="../Geometry3Sharp/Geometry3Sharp.csproj" />
+  </ItemGroup>
+
+</Project>
