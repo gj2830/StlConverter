@@ -1,7 +1,7 @@
 using RsDocx.Core.Brep;
 using RsDocx.Core.Stl;
 
-namespace RsConverterUI;
+namespace StlConverter;
 
 /// <summary>
 /// What the converter hands over to the program that opened it (PushPullMe), instead of saving: the bodies (in metres;

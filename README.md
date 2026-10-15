@@ -8,7 +8,13 @@ naar exacte vormen: platte vlakken, cilinders en kegels worden herkend en als ec
 - `src/RsDocx.Core`: het lezen en schrijven van `.rsdocx` en de omzetting van driehoeksnetten.
 - `src/Geometry3Sharp`: [geometry3Sharp](https://github.com/gradientspace/geometry3Sharp) (Boost-licentie, zie de
   LICENSE in die map), gebruikt voor het repareren van netten.
-- `tools/RsConverterUI`: een venster om bestanden om te zetten; `tools/stl2rsdocx`, `rsdump`, `rsgen`: hulpprogramma's.
+- `tools/StlConverter`: een venster om bestanden om te zetten (Nederlands en Engels, 🌐-knop); `tools/stl2rsdocx`, `rsdump`, `rsgen`: hulpprogramma's.
+
+## Downloaden
+
+Onder [Releases](https://github.com/gj2830/StlConverter/releases) staat een zip voor Windows (64-bit). Uitpakken en
+`StlConverter.exe` starten voor het venster, of `stl2rsdocx.exe model.stl model.rsdocx --curved` op de opdrachtregel;
+.NET hoeft niet apart geïnstalleerd te zijn.
 
 ## Bouwen
 
@@ -30,7 +36,9 @@ De tests gebruiken de modellen in `testdata/`.
 
 StlConverter reads and writes DesignSpark Mechanical files (`.rsdocx`, with Parasolid geometry) and converts STL and
 3MF meshes into exact geometry: planes, cylinders and cones are recognised and written as true surfaces. It is the
-file engine of [PushPullMe](https://github.com/gj2830/PushPullMe). Build with the .NET 10 SDK as shown above.
+file engine of [PushPullMe](https://github.com/gj2830/PushPullMe). Download a ready-to-run Windows build from
+[Releases](https://github.com/gj2830/StlConverter/releases) (`StlConverter.exe` for the window, `stl2rsdocx.exe` on the
+command line), or build it with the .NET 10 SDK as shown above.
 
 ## Licentie / License
 

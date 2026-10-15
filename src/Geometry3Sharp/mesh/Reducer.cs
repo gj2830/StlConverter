@@ -23,7 +23,7 @@ namespace g3
 		// (Also results in more invalid collapses, not sure why though...)
 		public bool MinimizeQuadricPositionError = true;
 
-        // [RsConverter] if true, an edge collapses onto one of its end points (no new positions): every remaining vertex
+        // [StlConverter] if true, an edge collapses onto one of its end points (no new positions): every remaining vertex
         // is an original one, so it still lies exactly on the surfaces the mesh was made from (needed for recognition)
         public bool CollapseToEndpoint = false;
 
@@ -369,7 +369,7 @@ namespace g3
 
             // [TODO] if we have constraints, we should apply them here, for same reason as bdry above...
 
-            // [RsConverter] keep original vertex positions: collapse onto the end with the lower quadric error
+            // [StlConverter] keep original vertex positions: collapse onto the end with the lower quadric error
             if (CollapseToEndpoint) {
                 Vector3d va = mesh.GetVertex(ea), vb = mesh.GetVertex(eb);
                 return q.Evaluate(ref va) <= q.Evaluate(ref vb) ? va : vb;

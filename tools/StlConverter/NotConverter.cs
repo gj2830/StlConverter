@@ -1,7 +1,7 @@
 using System.Globalization;
 using System.Windows.Data;
 
-namespace RsConverterUI;
+namespace StlConverter;
 
 /// <summary>true ⇄ false (to disable the slope slider while the automatic double click is on).</summary>
 public sealed class NotConverter : IValueConverter

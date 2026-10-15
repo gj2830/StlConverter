@@ -14,7 +14,7 @@ using RsDocx.Core;
 using RsDocx.Core.Brep;
 using RsDocx.Core.Stl;
 
-namespace RsConverterUI;
+namespace StlConverter;
 
 /// <summary>
 /// Everything shown is drawn from the triangles as they are in the file ("source triangles"), so selections work before
@@ -22,6 +22,17 @@ namespace RsConverterUI;
 /// </summary>
 public partial class MainWindow : Window
 {
+    /// <summary>🌐: the other language, at once (the status text changes with the next step), and kept.</summary>
+    private void Language_Click(object sender, RoutedEventArgs e)
+    {
+        Lang.Switch();
+        XamlTexts.Apply(this);
+        LanguageButton.Content = Lang.English ? "🌐  EN" : "🌐  NL";
+    }
+
+    /// <summary>A text in the language chosen (see <see cref="Lang"/>).</summary>
+    private static string T(string nl, string en) => Lang.T(nl, en);
+
     private string? _path;
     private StlFile? _stl;
     private List<BrepBody>? _bodies;
@@ -51,15 +62,27 @@ public partial class MainWindow : Window
     private List<(List<int> tris, FaceKind kind)> _hintGroups = new();
     private bool _painting;
 
-    private static readonly (FaceKind kind, string name, Color color, string emoji)[] Kinds =
+    private static readonly (FaceKind kind, Color color, string emoji)[] Kinds =
     [
-        (FaceKind.Plane, "Vlak", Color.FromRgb(0xD6, 0xDB, 0xEA), "▭"),
-        (FaceKind.Facet, "Losse driehoek", Color.FromRgb(0xFF, 0x8A, 0x65), "🔺"),
-        (FaceKind.Cylinder, "Cilinder", Color.FromRgb(0x4D, 0xA3, 0xFF), "🥫"),
-        (FaceKind.Sphere, "Bol", Color.FromRgb(0x3D, 0xD6, 0x9C), "⚽"),
-        (FaceKind.Torus, "Torus", Color.FromRgb(0xB0, 0x7C, 0xFF), "🍩"),
-        (FaceKind.Cone, "Kegel", Color.FromRgb(0xFF, 0xB3, 0x47), "🍦"),
+        (FaceKind.Plane, Color.FromRgb(0xD6, 0xDB, 0xEA), "▭"),
+        (FaceKind.Facet, Color.FromRgb(0xFF, 0x8A, 0x65), "🔺"),
+        (FaceKind.Cylinder, Color.FromRgb(0x4D, 0xA3, 0xFF), "🥫"),
+        (FaceKind.Sphere, Color.FromRgb(0x3D, 0xD6, 0x9C), "⚽"),
+        (FaceKind.Torus, Color.FromRgb(0xB0, 0x7C, 0xFF), "🍩"),
+        (FaceKind.Cone, Color.FromRgb(0xFF, 0xB3, 0x47), "🍦"),
     ];
+
+    /// <summary>A kind of face as shown, in the language chosen.</summary>
+    private static string KindName(FaceKind kind) => kind switch
+    {
+        FaceKind.Plane => T("Vlak", "Plane"),
+        FaceKind.Facet => T("Losse driehoek", "Loose triangle"),
+        FaceKind.Cylinder => T("Cilinder", "Cylinder"),
+        FaceKind.Sphere => T("Bol", "Sphere"),
+        FaceKind.Torus => T("Torus", "Torus"),
+        FaceKind.Cone => T("Kegel", "Cone"),
+        _ => kind.ToString(),
+    };
     private static readonly Color RawColor = Color.FromRgb(0xD8, 0xDC, 0xE0);
     private static readonly Color FadedColor = Color.FromRgb(0xC8, 0xCE, 0xD8);
     private static readonly Color SelectionColor = Color.FromRgb(0xFF, 0xC1, 0x07);
@@ -87,6 +110,8 @@ public partial class MainWindow : Window
     private MainWindow(bool standalone)
     {
         InitializeComponent();
+        XamlTexts.Apply(this);
+        LanguageButton.Content = Lang.English ? "🌐  EN" : "🌐  NL";
         UpdateSliderTexts();
         KeyDown += (_, e) =>
         {
@@ -120,9 +145,9 @@ public partial class MainWindow : Window
         TangentText.Text = string.Format(c, "{0:0.#}°", TangentSlider.Value);
         RadiusText.Text = string.Format(c, "{0:0} mm", MaxRadiusMm);
         RoundsText.Text = string.Format(c, "{0:0}×", RoundsSlider.Value);
-        BrushText.Text = BrushSlider.Value < 0.05 ? "1 driehoekje" : string.Format(c, "{0:0.0} {1}", BrushSlider.Value, UnitName);
+        BrushText.Text = BrushSlider.Value < 0.05 ? T("1 driehoekje", "1 triangle") : string.Format(c, "{0:0.0} {1}", BrushSlider.Value, UnitName);
         WandText.Text = string.Format(c, "{0:0}°", WandSlider.Value);
-        DoubleText.Text = DoubleSlider.Value < 0.5 ? "0° · alleen vlak" : string.Format(c, "{0:0}°", DoubleSlider.Value);
+        DoubleText.Text = DoubleSlider.Value < 0.5 ? T("0° · alleen vlak", "0° · flat only") : string.Format(c, "{0:0}°", DoubleSlider.Value);
     }
 
     private string UnitName => (string)((ComboBoxItem)UnitBox.SelectedItem).Content;
@@ -257,7 +282,7 @@ public partial class MainWindow : Window
         if (_stl == null || _path == null) return;
         var c = CultureInfo.InvariantCulture;
         var sb = new System.Text.StringBuilder();
-        sb.AppendLine(string.Format(c, "# {0} · {1} driehoekjes{2}", Path.GetFileName(_path), _stl.Triangles.Count, _original != null ? " · opgeschoond" : ""));
+        sb.AppendLine(string.Format(c, T("# {0} · {1} driehoekjes{2}", "# {0} · {1} triangles{2}"), Path.GetFileName(_path), _stl.Triangles.Count, _original != null ? T(" · opgeschoond", " · cleaned up") : ""));
         sb.AppendLine(string.Format(c, "settings unit={0} angle={1} fit={2} join={3} tangent={4} radius={5} rounds={6} cyl={7} sph={8} tor={9} cone={10} keep={11} full={12}",
             UnitBox.SelectedIndex, AngleSlider.Value, FitSlider.Value, JoinSlider.Value, TangentSlider.Value, RadiusSlider.Value, RoundsSlider.Value,
             CylBox.IsChecked == true ? 1 : 0, SphBox.IsChecked == true ? 1 : 0, TorBox.IsChecked == true ? 1 : 0, ConeBox.IsChecked == true ? 1 : 0,
@@ -269,9 +294,9 @@ public partial class MainWindow : Window
         try
         {
             File.WriteAllText(file, sb.ToString());
-            ShowToast("📝 Groepen bewaard", file);
+            ShowToast(T("📝 Groepen bewaard", "📝 Groups saved"), file);
         }
-        catch (IOException ex) { ShowToast("😕 Niet bewaard", ex.Message); }
+        catch (IOException ex) { ShowToast(T("😕 Niet bewaard", "😕 Not saved"), ex.Message); }
     }
 
     /// <summary>Test aid: settings and groups from a <see cref="DumpGroups"/> file (the selection is not restored).</summary>
@@ -303,7 +328,7 @@ public partial class MainWindow : Window
 
     private void Open_Click(object sender, RoutedEventArgs e)
     {
-        var dlg = new OpenFileDialog { Filter = "Mesh (*.stl;*.3mf)|*.stl;*.3mf|Alle bestanden|*.*" };
+        var dlg = new OpenFileDialog { Filter = T("Mesh (*.stl;*.3mf)|*.stl;*.3mf|Alle bestanden|*.*", "Mesh (*.stl;*.3mf)|*.stl;*.3mf|All files|*.*") };
         if (dlg.ShowDialog(this) == true) Load(dlg.FileName);
     }
 
@@ -326,7 +351,7 @@ public partial class MainWindow : Window
         }
         catch (Exception ex) when (ex is StlFormatException or IOException)
         {
-            MessageBox.Show(this, ex.Message, "Kan bestand niet lezen", MessageBoxButton.OK, MessageBoxImage.Warning);
+            MessageBox.Show(this, ex.Message, T("Kan bestand niet lezen", "Cannot read the file"), MessageBoxButton.OK, MessageBoxImage.Warning);
             return;
         }
         _path = path; _original = null;
@@ -334,9 +359,9 @@ public partial class MainWindow : Window
         if (_stl.Header.Contains("unit=MM", StringComparison.OrdinalIgnoreCase)) UnitBox.SelectedIndex = 0;
         ShowNewMesh();
         if (_openEdges + _nonManifoldEdges > 0)
-            ShowToast("⚠️ De mesh is niet dicht", $"{_openEdges:N0} open randen, {_nonManifoldEdges:N0} randen met meer dan twee driehoekjes. Herkennen lukt pas na 🧹 Opschonen.");
+            ShowToast(T("⚠️ De mesh is niet dicht", "⚠️ The mesh is not closed"), T($"{_openEdges:N0} open randen, {_nonManifoldEdges:N0} randen met meer dan twee driehoekjes. Herkennen lukt pas na 🧹 Opschonen.", $"{_openEdges:N0} open edges, {_nonManifoldEdges:N0} edges with more than two triangles. Recognising only works after 🧹 Clean up."));
         else if (_pinched > 0)
-            ShowToast("⚠️ Delen raken elkaar in een punt", $"Op {_pinched:N0} {(_pinched == 1 ? "plek raken" : "plekken raken")} twee stukken oppervlak elkaar in één punt. Herkennen lukt pas na 🧹 Opschonen.");
+            ShowToast(T("⚠️ Delen raken elkaar in een punt", "⚠️ Parts touch in a point"), T($"Op {_pinched:N0} {(_pinched == 1 ? "plek raken" : "plekken raken")} twee stukken oppervlak elkaar in één punt. Herkennen lukt pas na 🧹 Opschonen.", $"In {_pinched:N0} {(_pinched == 1 ? "place" : "places")} two pieces of surface touch in a single point. Recognising only works after 🧹 Clean up."));
         // test aid (see Snapshot): RSUI_RECOGNIZE=1 recognises first
         if (Environment.GetEnvironmentVariable("RSUI_SNAPSHOT") is { Length: > 0 } shot)
         {
@@ -567,10 +592,10 @@ public partial class MainWindow : Window
         if (!_keepUndo) _threadUndos.Clear();
         BuildTopology();
         SaveButton.IsEnabled = RecognizeButton.IsEnabled = TuneButton.IsEnabled = true;
-        FileText.Text = $"{Path.GetFileName(_path)} · {_stl!.Triangles.Count:N0} driehoekjes ({_stl.Format})" + (_original != null ? " · opgeschoond 🧹" : "");
+        FileText.Text = T($"{Path.GetFileName(_path)} · {_stl!.Triangles.Count:N0} driehoekjes ({_stl.Format})", $"{Path.GetFileName(_path)} · {_stl!.Triangles.Count:N0} triangles ({_stl.Format})") + (_original != null ? T(" · opgeschoond 🧹", " · cleaned up 🧹") : "");
         EmptyHint.Visibility = Visibility.Collapsed;
         PickCard.Visibility = Visibility.Collapsed;
-        StatusText.Text = "Je ziet de kale mesh: selecteer zelf (dubbelklik, penseel, toverstaf) of klik op ✨ om alles te herkennen.";
+        StatusText.Text = T("Je ziet de kale mesh: selecteer zelf (dubbelklik, penseel, toverstaf) of klik op ✨ om alles te herkennen.", "You see the bare mesh: select yourself (double-click, brush, magic wand) or click ✨ to recognise everything.");
         Legend.Children.Clear();
         RebuildBase();
         RebuildOverlay();
@@ -596,11 +621,11 @@ public partial class MainWindow : Window
     private void UpdateClean()
     {
         bool closed = !MeshBroken;
-        CleanBadge.Text = _stl == null ? "" : closed ? "✅ dicht"
-            : _openEdges + _nonManifoldEdges > 0 ? $"⚠️ {_openEdges + _nonManifoldEdges:N0} foute randen" + (_pinched > 0 ? $" · {_pinched:N0} raakpunten" : "")
-            : $"⚠️ {_pinched:N0} {(_pinched == 1 ? "raakpunt" : "raakpunten")}";
-        CleanBadge.ToolTip = closed ? "Elke rand heeft precies twee driehoekjes en nergens raken delen elkaar in één punt"
-            : $"{_openEdges:N0} open randen (gaten), {_nonManifoldEdges:N0} randen met meer dan twee driehoekjes, {_pinched:N0} punten waar twee delen elkaar raken";
+        CleanBadge.Text = _stl == null ? "" : closed ? T("✅ dicht", "✅ closed")
+            : _openEdges + _nonManifoldEdges > 0 ? T($"⚠️ {_openEdges + _nonManifoldEdges:N0} foute randen", $"⚠️ {_openEdges + _nonManifoldEdges:N0} bad edges") + (_pinched > 0 ? T($" · {_pinched:N0} raakpunten", $" · {_pinched:N0} touch points") : "")
+            : T($"⚠️ {_pinched:N0} {(_pinched == 1 ? "raakpunt" : "raakpunten")}", $"⚠️ {_pinched:N0} {(_pinched == 1 ? "touch point" : "touch points")}");
+        CleanBadge.ToolTip = closed ? T("Elke rand heeft precies twee driehoekjes en nergens raken delen elkaar in één punt", "Every edge has exactly two triangles and nowhere do parts touch in a single point")
+            : T($"{_openEdges:N0} open randen (gaten), {_nonManifoldEdges:N0} randen met meer dan twee driehoekjes, {_pinched:N0} punten waar twee delen elkaar raken", $"{_openEdges:N0} open edges (holes), {_nonManifoldEdges:N0} edges with more than two triangles, {_pinched:N0} points where two parts touch");
         if (!closed) CleanToggle.IsChecked = true;
         CleanButton.IsEnabled = SaveStlButton.IsEnabled = _stl != null;
         UndoCleanButton.IsEnabled = _original != null;
@@ -612,7 +637,7 @@ public partial class MainWindow : Window
     private void SimplifySlider_Changed(object sender, RoutedPropertyChangedEventArgs<double> e)
     {
         if (SimplifyText == null) return;
-        SimplifyText.Text = SimplifySlider.Value >= 100 ? "uit" : _stl == null ? $"{SimplifySlider.Value:0} %" : $"{SimplifySlider.Value:0} % ≈ {SimplifyTarget():N0}";
+        SimplifyText.Text = SimplifySlider.Value >= 100 ? T("uit", "off") : _stl == null ? $"{SimplifySlider.Value:0} %" : $"{SimplifySlider.Value:0} % ≈ {SimplifyTarget():N0}";
     }
 
     private async void Clean_Click(object sender, RoutedEventArgs e) => await Clean();
@@ -630,7 +655,7 @@ public partial class MainWindow : Window
         var before = _stl;
         OpenButton.IsEnabled = RecognizeButton.IsEnabled = SaveButton.IsEnabled = CleanButton.IsEnabled = false;
         var sw = Stopwatch.StartNew();
-        string[] jokes = ["Gaten stoppen 🧦", "Snippers vegen 🧹", "Randen rechtzetten 📐", "Driehoekjes uitdunnen ✂️"];
+        string[] jokes = [T("Gaten stoppen 🧦", "Plugging holes 🧦"), T("Snippers vegen 🧹", "Sweeping up scraps 🧹"), T("Randen rechtzetten 📐", "Straightening edges 📐"), T("Driehoekjes uitdunnen ✂️", "Thinning out triangles ✂️")];
         var timer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(250) };
         timer.Tick += (_, _) => BusyText.Text = $"{jokes[(int)(sw.Elapsed.TotalSeconds / 2.5) % jokes.Length]}   {sw.Elapsed.TotalSeconds:0} s";
         BusyText.Text = jokes[0];
@@ -656,22 +681,22 @@ public partial class MainWindow : Window
             }
             string what = string.Join(", ", new[]
             {
-                st.HolesFilled > 0 ? $"{st.HolesFilled} {(st.HolesFilled == 1 ? "gat" : "gaten")} gedicht" : null,
-                st.DuplicatesRemoved > 0 ? $"{st.DuplicatesRemoved} dubbele driehoekjes weg" : null,
-                st.NonManifoldRemoved > 0 ? $"{st.NonManifoldRemoved} non-manifold driehoekjes weg" : null,
-                st.PiecesRemoved > 0 ? $"{st.PiecesRemoved} {(st.PiecesRemoved == 1 ? "snipper" : "snippers")} weg" : null,
-                st.FlatFixed > 0 ? $"{st.FlatFixed} platte driehoekjes rechtgezet" : null,
-                opt.TargetTriangles > 0 ? $"vereenvoudigd {st.InputTriangles:N0} → {st.OutputTriangles:N0}" : null,
+                st.HolesFilled > 0 ? T($"{st.HolesFilled} {(st.HolesFilled == 1 ? "gat" : "gaten")} gedicht", $"{st.HolesFilled} {(st.HolesFilled == 1 ? "hole" : "holes")} closed") : null,
+                st.DuplicatesRemoved > 0 ? T($"{st.DuplicatesRemoved} dubbele driehoekjes weg", $"{st.DuplicatesRemoved} duplicate triangles removed") : null,
+                st.NonManifoldRemoved > 0 ? T($"{st.NonManifoldRemoved} non-manifold driehoekjes weg", $"{st.NonManifoldRemoved} non-manifold triangles removed") : null,
+                st.PiecesRemoved > 0 ? T($"{st.PiecesRemoved} {(st.PiecesRemoved == 1 ? "snipper" : "snippers")} weg", $"{st.PiecesRemoved} {(st.PiecesRemoved == 1 ? "scrap" : "scraps")} removed") : null,
+                st.FlatFixed > 0 ? T($"{st.FlatFixed} platte driehoekjes rechtgezet", $"{st.FlatFixed} flat triangles straightened") : null,
+                opt.TargetTriangles > 0 ? T($"vereenvoudigd {st.InputTriangles:N0} → {st.OutputTriangles:N0}", $"simplified {st.InputTriangles:N0} → {st.OutputTriangles:N0}") : null,
             }.Where(x => x != null));
-            ShowToast(st.OpenEdges == 0 ? "🧹 Opgeschoond, de mesh is dicht" : $"🧹 Opgeschoond, nog {st.OpenEdges} open randen",
-                (what.Length > 0 ? what : "Er was niets op te ruimen") + $" · {sw.Elapsed.TotalSeconds:0.0} s");
-            StatusText.Text = $"🧹 Opgeschoond in {sw.Elapsed.TotalSeconds:0.0} s: {(what.Length > 0 ? what : "niets veranderd")}."
-                + (changed > 0 ? $"\nDe {changed:N0} nieuwe of rechtgezette driehoekjes zijn roze." : "")
-                + "\n↩ origineel zet het terug. Klik op ✨ om te herkennen.";
+            ShowToast(st.OpenEdges == 0 ? T("🧹 Opgeschoond, de mesh is dicht", "🧹 Cleaned up, the mesh is closed") : T($"🧹 Opgeschoond, nog {st.OpenEdges} open randen", $"🧹 Cleaned up, {st.OpenEdges} open edges left"),
+                (what.Length > 0 ? what : T("Er was niets op te ruimen", "There was nothing to clean up")) + $" · {sw.Elapsed.TotalSeconds:0.0} s");
+            StatusText.Text = T($"🧹 Opgeschoond in {sw.Elapsed.TotalSeconds:0.0} s: {(what.Length > 0 ? what : "niets veranderd")}.", $"🧹 Cleaned up in {sw.Elapsed.TotalSeconds:0.0} s: {(what.Length > 0 ? what : "nothing changed")}.")
+                + (changed > 0 ? T($"\nDe {changed:N0} nieuwe of rechtgezette driehoekjes zijn roze.", $"\nThe {changed:N0} new or straightened triangles are pink.") : "")
+                + T("\n↩ origineel zet het terug. Klik op ✨ om te herkennen.", "\n↩ original puts it back. Click ✨ to recognise.");
         }
         catch (Exception ex) when (ex is MeshException or InvalidOperationException or ArgumentException)
         {
-            StatusText.Text = "😕 Opschonen mislukt: " + ex.Message;
+            StatusText.Text = T("😕 Opschonen mislukt: ", "😕 Cleaning up failed: ") + ex.Message;
         }
         finally
         {
@@ -686,7 +711,7 @@ public partial class MainWindow : Window
         if (_original == null) return;
         _stl = _original; _original = null;
         ShowNewMesh();
-        ShowToast("↩ Origineel terug", $"{_stl.Triangles.Count:N0} driehoekjes zoals in het bestand");
+        ShowToast(T("↩ Origineel terug", "↩ Original back"), T($"{_stl.Triangles.Count:N0} driehoekjes zoals in het bestand", $"{_stl.Triangles.Count:N0} triangles as in the file"));
     }
 
     /// <summary>Normals and edge neighbours of the source triangles (corners matched by position).</summary>
@@ -777,8 +802,8 @@ public partial class MainWindow : Window
         var sw = Stopwatch.StartNew();
         string[] jokes =
         [
-            "Driehoekjes tellen…", "Vlakken strijken…", "Cilinders opsporen 🥫", "Bollen oppompen ⚽", "Donuts bakken 🍩",
-            "Naden dichtnaaien 🧵", "Randen rechttrekken 📏", "Even goed kijken 🧐", "Conflicten sussen 🕊️",
+            T("Driehoekjes tellen…", "Counting triangles…"), T("Vlakken strijken…", "Ironing faces…"), T("Cilinders opsporen 🥫", "Tracking down cylinders 🥫"), T("Bollen oppompen ⚽", "Pumping up spheres ⚽"), T("Donuts bakken 🍩", "Baking doughnuts 🍩"),
+            T("Naden dichtnaaien 🧵", "Sewing up seams 🧵"), T("Randen rechttrekken 📏", "Straightening edges 📏"), T("Even goed kijken 🧐", "Taking a good look 🧐"), T("Conflicten sussen 🕊️", "Calming conflicts 🕊️"),
         ];
         var timer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(250) };
         timer.Tick += (_, _) => BusyText.Text = $"{jokes[(int)(sw.Elapsed.TotalSeconds / 2.5) % jokes.Length]}   {sw.Elapsed.TotalSeconds:0} s";
@@ -796,17 +821,17 @@ public partial class MainWindow : Window
         }
         catch (OperationCanceledException)
         {
-            StatusText.Text = $"⏹ Gestopt na {sw.Elapsed.TotalSeconds:0} s." + (_labels != null ? " Het vorige resultaat blijft staan." : "");
+            StatusText.Text = T($"⏹ Gestopt na {sw.Elapsed.TotalSeconds:0} s.", $"⏹ Stopped after {sw.Elapsed.TotalSeconds:0} s.") + (_labels != null ? T(" Het vorige resultaat blijft staan.", " The previous result stays.") : "");
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
             // (any error, also an unexpected one: shown, never a crash of the app)
             bool open = ex.Message.StartsWith("Mesh is not watertight") || ex.Message.Contains("non-manifold vertex");
             StatusText.Text = ex.Message.Contains("non-manifold vertex")
-                ? "😕 Twee stukken oppervlak raken elkaar in één punt; daar kan geen solid van gemaakt worden. Gebruik eerst 🧹 Opschonen (dat splitst zo'n punt)."
+                ? T("😕 Twee stukken oppervlak raken elkaar in één punt; daar kan geen solid van gemaakt worden. Gebruik eerst 🧹 Opschonen (dat splitst zo'n punt).", "😕 Two pieces of surface touch in a single point; no solid can be made of that. Use 🧹 Clean up first (it splits such a point).")
                 : open
-                ? $"😕 De mesh is niet dicht ({_openEdges:N0} open randen, {_nonManifoldEdges:N0} randen met meer dan twee driehoekjes). Gebruik eerst 🧹 Opschonen."
-                : "😕 Mislukt: " + ex.Message;
+                ? T($"😕 De mesh is niet dicht ({_openEdges:N0} open randen, {_nonManifoldEdges:N0} randen met meer dan twee driehoekjes). Gebruik eerst 🧹 Opschonen.", $"😕 The mesh is not closed ({_openEdges:N0} open edges, {_nonManifoldEdges:N0} edges with more than two triangles). Use 🧹 Clean up first.")
+                : T("😕 Mislukt: ", "😕 Failed: ") + ex.Message;
             if (open) CleanToggle.IsChecked = true;
         }
         finally
@@ -841,7 +866,7 @@ public partial class MainWindow : Window
     {
         _cts?.Cancel();
         StopButton.IsEnabled = false;
-        BusyDetail.Text = "stoppen…";
+        BusyDetail.Text = T("stoppen…", "stopping…");
     }
 
     /// <summary>"12 van 37 lichamen klaar · grootste bezig: 4.210 driehoekjes, ronde 3" under the busy text.</summary>
@@ -850,9 +875,9 @@ public partial class MainWindow : Window
         if (_cts is not { IsCancellationRequested: false }) return;
         // (the bodies run in parallel: how many are done, and the largest one still busy)
         var parts = new List<string>();
-        if (p.Bodies > 1) parts.Add($"{p.Done} van {p.Bodies} lichamen klaar");
+        if (p.Bodies > 1) parts.Add(T($"{p.Done} van {p.Bodies} lichamen klaar", $"{p.Done} of {p.Bodies} bodies done"));
         if (p.Triangles > 0)
-            parts.Add((p.Bodies > 1 ? "grootste bezig: " : "") + $"{p.Triangles:N0} driehoekjes" + (p.Round > 1 ? $", ronde {p.Round}" : ""));
+            parts.Add((p.Bodies > 1 ? T("grootste bezig: ", "largest in progress: ") : "") + T($"{p.Triangles:N0} driehoekjes", $"{p.Triangles:N0} triangles") + (p.Round > 1 ? T($", ronde {p.Round}", $", round {p.Round}") : ""));
         BusyDetail.Text = string.Join(" · ", parts);
     });
 
@@ -880,7 +905,7 @@ public partial class MainWindow : Window
         _bodies = bodies; _labels = labels;
         _groupFailed.Clear();
         foreach (var (g, reason) in stats.HintFailures)
-            if (g - _softCount is int ug && ug >= 0 && ug < _hintGroups.Count) _groupFailed[_hintGroups[ug].tris] = DutchReason(reason);
+            if (g - _softCount is int ug && ug >= 0 && ug < _hintGroups.Count) _groupFailed[_hintGroups[ug].tris] = Reason(reason);
         Array.Fill(_faceOf, (-1, -1));
         foreach (var t in labels.Triangles) _faceOf[t.Source] = (t.Body, t.Face);
         RebuildBase();
@@ -890,14 +915,14 @@ public partial class MainWindow : Window
         int facets = counts.GetValueOrDefault(FaceKind.Facet);
         int applied = _groups.Count(GroupApplied);
         StatusText.Text = (_fullMode
-            ? $"🎉 {bodies.Sum(b => b.Faces.Count):N0} vlakken in {bodies.Count} {(bodies.Count == 1 ? "body" : "bodies")} · {took.TotalSeconds:0.0} s"
-              + (facets > 0 ? $"\n{facets:N0} losse driehoekjes konden nergens bij (oranje)." : "\nAlles netjes herkend!")
+            ? T($"🎉 {bodies.Sum(b => b.Faces.Count):N0} vlakken in {bodies.Count} {(bodies.Count == 1 ? "body" : "bodies")} · {took.TotalSeconds:0.0} s", $"🎉 {bodies.Sum(b => b.Faces.Count):N0} faces in {bodies.Count} {(bodies.Count == 1 ? "body" : "bodies")} · {took.TotalSeconds:0.0} s")
+              + (facets > 0 ? T($"\n{facets:N0} losse driehoekjes konden nergens bij (oranje).", $"\n{facets:N0} loose triangles did not fit anywhere (orange).") : T("\nAlles netjes herkend!", "\nEverything neatly recognised!"))
             : _planeMode
-            ? $"▭ {bodies.Sum(b => b.Faces.Count):N0} vlakken · {took.TotalSeconds:0.0} s: platte stukken samengevoegd" + (_groups.Count > 0 ? $", {applied} van {_groups.Count} {(_groups.Count == 1 ? "groep" : "groepen")} omgezet" : "")
-              + $"\nDe rest blijft driehoekjes ({facets:N0}). Maak er zelf groepen van, of ✨ herkent alles."
-            : $"🧩 {applied} van {_groups.Count} {(_groups.Count == 1 ? "groep" : "groepen")} omgezet · {took.TotalSeconds:0.0} s\nDe rest blijft mesh ({facets:N0} driehoekjes). ✨ herkent alles.")
+            ? T($"▭ {bodies.Sum(b => b.Faces.Count):N0} vlakken · {took.TotalSeconds:0.0} s: platte stukken samengevoegd", $"▭ {bodies.Sum(b => b.Faces.Count):N0} faces · {took.TotalSeconds:0.0} s: flat pieces merged") + (_groups.Count > 0 ? T($", {applied} van {_groups.Count} {(_groups.Count == 1 ? "groep" : "groepen")} omgezet", $", {applied} of {_groups.Count} {(_groups.Count == 1 ? "group" : "groups")} converted") : "")
+              + T($"\nDe rest blijft driehoekjes ({facets:N0}). Maak er zelf groepen van, of ✨ herkent alles.", $"\nThe rest stays triangles ({facets:N0}). Make groups of them yourself, or ✨ recognises everything.")
+            : T($"🧩 {applied} van {_groups.Count} {(_groups.Count == 1 ? "groep" : "groepen")} omgezet · {took.TotalSeconds:0.0} s\nDe rest blijft mesh ({facets:N0} driehoekjes). ✨ herkent alles.", $"🧩 {applied} of {_groups.Count} {(_groups.Count == 1 ? "group" : "groups")} converted · {took.TotalSeconds:0.0} s\nThe rest stays mesh ({facets:N0} triangles). ✨ recognises everything."))
             + string.Concat(stats.HintFailures.Where(f => f.group >= _softCount && f.group - _softCount < _hintGroups.Count)
-                .Select(f => $"\n🙈 Groep {_groups.FindIndex(g => ReferenceEquals(g.tris, _hintGroups[f.group - _softCount].tris)) + 1} paste niet en is overgeslagen (de rest is gewoon herkend): {DutchReason(f.reason)}"))
+                .Select(f => T($"\n🙈 Groep {_groups.FindIndex(g => ReferenceEquals(g.tris, _hintGroups[f.group - _softCount].tris)) + 1} paste niet en is overgeslagen (de rest is gewoon herkend): {Reason(f.reason)}", $"\n🙈 Group {_groups.FindIndex(g => ReferenceEquals(g.tris, _hintGroups[f.group - _softCount].tris)) + 1} did not fit and was skipped (the rest was recognised as usual): {Reason(f.reason)}")))
             + string.Concat(stats.Warnings.Select(w => "\n⚠️ " + w))
             + (extra != null ? "\n\n" + extra : "");
         UpdateLegend(counts);
@@ -909,25 +934,25 @@ public partial class MainWindow : Window
         {
             var g = _groups[^1];
             if (_looseGroups.Contains(g.tris))
-                ShowToast($"✂️ {g.tris.Count:N0} driehoekjes losgekoppeld", g.tris.All(_selection.Contains)
-                    ? "Ze blijven losse driehoekjes en zijn nog geselecteerd: kies ➕ bij vlak om ze bij een ander vlak te voegen."
-                    : "Ze blijven losse driehoekjes.");
-            else if (_groupFailed.TryGetValue(g.tris, out var why)) ShowToast($"❌ Groep {_groups.Count} paste niet", why);
+                ShowToast(T($"✂️ {g.tris.Count:N0} driehoekjes losgekoppeld", $"✂️ {g.tris.Count:N0} triangles detached"), g.tris.All(_selection.Contains)
+                    ? T("Ze blijven losse driehoekjes en zijn nog geselecteerd: kies ➕ bij vlak om ze bij een ander vlak te voegen.", "They stay loose triangles and are still selected: choose ➕ to face to add them to another face.")
+                    : T("Ze blijven losse driehoekjes.", "They stay loose triangles."));
+            else if (_groupFailed.TryGetValue(g.tris, out var why)) ShowToast(T($"❌ Groep {_groups.Count} paste niet", $"❌ Group {_groups.Count} did not fit"), why);
             else if (GroupApplied(g) && GroupFace(g.tris) is { } info)
             {
                 var c = CultureInfo.CurrentCulture;
                 string what = info.Kind switch
                 {
-                    FaceKind.Cylinder => string.Format(c, "🥫 cilinder, straal {0:0.###} mm", info.Radius * 1000),
-                    FaceKind.Sphere => string.Format(c, "⚽ bol, straal {0:0.###} mm", info.Radius * 1000),
-                    FaceKind.Torus => string.Format(c, "🍩 torus, R {0:0.###} / r {1:0.###} mm", info.Radius * 1000, info.MinorRadius * 1000),
-                    FaceKind.Cone => string.Format(c, "🍦 kegel, halve tophoek {0:0.###}°", Math.Atan(info.MinorRadius) * 180 / Math.PI),
-                    _ => "▭ vlak",
+                    FaceKind.Cylinder => string.Format(c, T("🥫 cilinder, straal {0:0.###} mm", "🥫 cylinder, radius {0:0.###} mm"), info.Radius * 1000),
+                    FaceKind.Sphere => string.Format(c, T("⚽ bol, straal {0:0.###} mm", "⚽ sphere, radius {0:0.###} mm"), info.Radius * 1000),
+                    FaceKind.Torus => string.Format(c, T("🍩 torus, R {0:0.###} / r {1:0.###} mm", "🍩 torus, R {0:0.###} / r {1:0.###} mm"), info.Radius * 1000, info.MinorRadius * 1000),
+                    FaceKind.Cone => string.Format(c, T("🍦 kegel, halve tophoek {0:0.###}°", "🍦 cone, half apex angle {0:0.###}°"), Math.Atan(info.MinorRadius) * 180 / Math.PI),
+                    _ => T("▭ vlak", "▭ plane"),
                 };
                 int left = g.tris.Count(t => InfoOf(t)?.Group != info.Group);
-                ShowToast($"✅ Groep {_groups.Count}: {what}", string.Format(c, "afwijking {0:0.####} mm", info.Deviation * 1000)
-                    + (_joined > 0 ? $" · samen met {_joined} {(_joined == 1 ? "aangrenzend vlak" : "aangrenzende vlakken")} op hetzelfde oppervlak" : "")
-                    + (left > 0 ? $" · {left} driehoekjes pasten niet en zijn eruit gelaten" : ""));
+                ShowToast(T($"✅ Groep {_groups.Count}: {what}", $"✅ Group {_groups.Count}: {what}"), string.Format(c, T("afwijking {0:0.####} mm", "deviation {0:0.####} mm"), info.Deviation * 1000)
+                    + (_joined > 0 ? T($" · samen met {_joined} {(_joined == 1 ? "aangrenzend vlak" : "aangrenzende vlakken")} op hetzelfde oppervlak", $" · together with {_joined} {(_joined == 1 ? "adjoining face" : "adjoining faces")} on the same surface") : "")
+                    + (left > 0 ? T($" · {left} driehoekjes pasten niet en zijn eruit gelaten", $" · {left} triangles did not fit and were left out") : ""));
             }
         }
     }
@@ -946,12 +971,12 @@ public partial class MainWindow : Window
     }
 
     /// <summary>The converter's reasons are technical English; the most common ones in plain Dutch.</summary>
-    private static string DutchReason(string reason) => reason switch
+    private static string Reason(string reason) => reason switch
     {
-        var r when r.Contains("not a circle") => "hij sluit aan op een buurvlak langs een kromme lijn die (nog) niet exact te maken is. Probeer de selectie iets kleiner te maken, zodat hij alleen aan zijn eigen buren grenst.",
-        var r when r.Contains("deviates") => "de gekozen vorm wijkt meer dan 0,1 mm af van de selectie; kies een andere vorm, selecteer preciezer, of kies 📐 plat om er hoe dan ook een plat vlak van te maken.",
-        var r when r.Contains("counter-clockwise") => "de vorm past niet goed genoeg op de geselecteerde driehoekjes.",
-        var r when r.Contains("no ") && r.Contains("fits") => "deze vorm past niet op de selectie.",
+        var r when r.Contains("not a circle") => T("hij sluit aan op een buurvlak langs een kromme lijn die (nog) niet exact te maken is. Probeer de selectie iets kleiner te maken, zodat hij alleen aan zijn eigen buren grenst.", "it joins a neighbouring face along a curved line that cannot be made exactly (yet). Try making the selection a little smaller, so that it only borders its own neighbours."),
+        var r when r.Contains("deviates") => T("de gekozen vorm wijkt meer dan 0,1 mm af van de selectie; kies een andere vorm, selecteer preciezer, of kies 📐 plat om er hoe dan ook een plat vlak van te maken.", "the chosen shape deviates more than 0.1 mm from the selection; choose another shape, select more precisely, or choose 📐 flat to make a flat face of it anyway."),
+        var r when r.Contains("counter-clockwise") => T("de vorm past niet goed genoeg op de geselecteerde driehoekjes.", "the shape does not fit the selected triangles well enough."),
+        var r when r.Contains("no ") && r.Contains("fits") => T("deze vorm past niet op de selectie.", "this shape does not fit the selection."),
         _ => reason,
     };
 
@@ -973,14 +998,14 @@ public partial class MainWindow : Window
         _tuneCancel = new CancellationTokenSource();
         var token = _tuneCancel.Token;
         OpenButton.IsEnabled = RecognizeButton.IsEnabled = SaveButton.IsEnabled = false;
-        TuneButton.Content = "⏹  Stop autotune";
+        TuneButton.Content = T("⏹  Stop autotune", "⏹  Stop autotune");
         var sw = Stopwatch.StartNew();
         int done = 0, bestFaces = int.MaxValue;
         var results = new List<(double f, double j, int faces, int facets, List<BrepBody> bodies, MeshStats stats, MeshLabels labels)>();
         var timer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(250) };
-        timer.Tick += (_, _) => BusyText.Text = $"🎛️ Autotune {Volatile.Read(ref done)}/{trials.Count}"
-            + (bestFaces < int.MaxValue ? $" · beste tot nu: {bestFaces:N0} vlakken" : "") + $"   {sw.Elapsed.TotalSeconds:0} s";
-        BusyText.Text = "🎛️ Autotune: instellingen proberen…";
+        timer.Tick += (_, _) => BusyText.Text = T($"🎛️ Autotune {Volatile.Read(ref done)}/{trials.Count}", $"🎛️ Autotune {Volatile.Read(ref done)}/{trials.Count}")
+            + (bestFaces < int.MaxValue ? T($" · beste tot nu: {bestFaces:N0} vlakken", $" · best so far: {bestFaces:N0} faces") : "") + $"   {sw.Elapsed.TotalSeconds:0} s";
+        BusyText.Text = T("🎛️ Autotune: instellingen proberen…", "🎛️ Autotune: trying settings…");
         BusyPanel.Visibility = Visibility.Visible;
         timer.Start();
         try
@@ -1016,17 +1041,17 @@ public partial class MainWindow : Window
             timer.Stop();
             BusyPanel.Visibility = Visibility.Collapsed;
             _tuneCancel = null;
-            TuneButton.Content = "🎛️  Autotune: zoek de beste instellingen";
+            TuneButton.Content = T("🎛️  Autotune: zoek de beste instellingen", "🎛️  Autotune: find the best settings");
             OpenButton.IsEnabled = RecognizeButton.IsEnabled = SaveButton.IsEnabled = true;
         }
-        if (results.Count == 0) { StatusText.Text = "😕 Autotune vond geen werkende instelling."; return; }
+        if (results.Count == 0) { StatusText.Text = T("😕 Autotune vond geen werkende instelling.", "😕 Autotune found no setting that works."); return; }
         var ranked = results.OrderBy(r => r.faces).ThenBy(r => r.facets).ThenBy(r => Math.Abs(r.f + 1) + Math.Abs(r.j - 10) / 10).ToList();
         var best = ranked[0];
         FitSlider.Value = best.f;
         JoinSlider.Value = best.j;
         var c = CultureInfo.CurrentCulture;
-        string table = $"🎛️ Autotune ({results.Count} geprobeerd):\n" + string.Join("\n", ranked.Take(5).Select((r, i) =>
-            string.Format(c, "{0} {1:0.###} µm / {2:0} µm → {3:N0} vlakken", i == 0 ? "🏆" : "     ", Math.Pow(10, r.f), r.j, r.faces)));
+        string table = T($"🎛️ Autotune ({results.Count} geprobeerd):\n", $"🎛️ Autotune ({results.Count} tried):\n") + string.Join("\n", ranked.Take(5).Select((r, i) =>
+            string.Format(c, T("{0} {1:0.###} µm / {2:0} µm → {3:N0} vlakken", "{0} {1:0.###} µm / {2:0} µm → {3:N0} faces"), i == 0 ? "🏆" : "     ", Math.Pow(10, r.f), r.j, r.faces)));
         ShowResult(best.bodies, best.stats, best.labels, sw.Elapsed, table);
     }
 
@@ -1039,7 +1064,7 @@ public partial class MainWindow : Window
         if (_stl == null) return;
         if (_bodies == null && MeshBroken)
         {
-            ShowToast("⚠️ Eerst opschonen", "De mesh is niet dicht, zo kan DesignSpark er geen solid van maken. Gebruik 🧹 Opschonen.");
+            ShowToast(T("⚠️ Eerst opschonen", "⚠️ Clean up first"), T("De mesh is niet dicht, zo kan DesignSpark er geen solid van maken. Gebruik 🧹 Opschonen.", "The mesh is not closed, so DesignSpark cannot make a solid of it. Use 🧹 Clean up."));
             CleanToggle.IsChecked = true;
             return;
         }
@@ -1050,16 +1075,16 @@ public partial class MainWindow : Window
             InitialDirectory = Path.GetDirectoryName(_path),
         };
         if (dlg.ShowDialog(this) != true) return;
-        if (await ResultBodies("Opslaan") is not var (bodies, _, note)) return;
+        if (await ResultBodies(T("Opslaan", "Saving")) is not var (bodies, _, note)) return;
         try
         {
             RsDocxComposer.Compose([.. bodies, .. _extraBodies]).Save(dlg.FileName);
-            StatusText.Text += $"\n💾 Opgeslagen: {Path.GetFileName(dlg.FileName)}{note}";
-            ShowToast("💾 Opgeslagen", Path.GetFileName(dlg.FileName) + note);
+            StatusText.Text += T($"\n💾 Opgeslagen: {Path.GetFileName(dlg.FileName)}{note}", $"\n💾 Saved: {Path.GetFileName(dlg.FileName)}{note}");
+            ShowToast(T("💾 Opgeslagen", "💾 Saved"), Path.GetFileName(dlg.FileName) + note);
         }
         catch (Exception ex) when (ex is InvalidOperationException or IOException)
         {
-            MessageBox.Show(this, ex.Message, "Opslaan mislukt", MessageBoxButton.OK, MessageBoxImage.Warning);
+            MessageBox.Show(this, ex.Message, T("Opslaan mislukt", "Saving failed"), MessageBoxButton.OK, MessageBoxImage.Warning);
         }
     }
 
@@ -1074,23 +1099,23 @@ public partial class MainWindow : Window
         var stl = _stl!;
         var opt = Options() with { RecognizeCylinders = false, RecognizeSpheres = false, RecognizeTori = false, RecognizeCones = false };
         OpenButton.IsEnabled = RecognizeButton.IsEnabled = SaveButton.IsEnabled = CleanButton.IsEnabled = false;
-        BusyText.Text = "Omzetten zonder herkenning 💾";
+        BusyText.Text = T("Omzetten zonder herkenning 💾", "Converting without recognition 💾");
         opt = opt with { Cancel = StartCancellable(), Progress = BusyProgress() };
         BusyPanel.Visibility = Visibility.Visible;
         try
         {
             MeshLabels? labels = null;
             var bodies = await Task.Run(() => MeshConverter.ConvertToBrep(stl, opt, out _, out labels));
-            return (bodies, labels, $" (zonder herkenning: {bodies.Sum(b => b.Faces.Count):N0} vlakken, platte stukken samengevoegd)");
+            return (bodies, labels, T($" (zonder herkenning: {bodies.Sum(b => b.Faces.Count):N0} vlakken, platte stukken samengevoegd)", $" (without recognition: {bodies.Sum(b => b.Faces.Count):N0} faces, flat pieces merged)"));
         }
         catch (OperationCanceledException)
         {
-            StatusText.Text += $"\n⏹ {what} gestopt.";
+            StatusText.Text += T($"\n⏹ {what} gestopt.", $"\n⏹ {what} stopped.");
             return null;
         }
         catch (Exception ex) when (ex is MeshException or InvalidOperationException)
         {
-            MessageBox.Show(this, ex.Message, "Omzetten mislukt", MessageBoxButton.OK, MessageBoxImage.Warning);
+            MessageBox.Show(this, ex.Message, T("Omzetten mislukt", "Converting failed"), MessageBoxButton.OK, MessageBoxImage.Warning);
             return null;
         }
         finally
@@ -1109,11 +1134,11 @@ public partial class MainWindow : Window
         if (_stl == null || !_embedded) return;
         if (_bodies == null && MeshBroken)
         {
-            ShowToast("⚠️ Eerst opschonen", "De mesh is niet dicht, zo is er geen solid van te maken. Gebruik 🧹 Opschonen.");
+            ShowToast(T("⚠️ Eerst opschonen", "⚠️ Clean up first"), T("De mesh is niet dicht, zo is er geen solid van te maken. Gebruik 🧹 Opschonen.", "The mesh is not closed, so no solid can be made of it. Use 🧹 Clean up."));
             CleanToggle.IsChecked = true;
             return;
         }
-        if (await ResultBodies("Overnemen") is not var (bodies, labels, note)) return;
+        if (await ResultBodies(T("Overnemen", "Taking over")) is not var (bodies, labels, note)) return;
         Result = new ConverterResult(_path!, [.. bodies, .. _extraBodies], labels, _stl, note.Trim());
         try { DialogResult = true; } catch (InvalidOperationException) { Close(); }
     }
@@ -1125,18 +1150,18 @@ public partial class MainWindow : Window
         var dlg = new SaveFileDialog
         {
             Filter = "STL (*.stl)|*.stl",
-            FileName = Path.GetFileNameWithoutExtension(_path) + (_original != null ? "_opgeschoond" : "") + ".stl",
+            FileName = Path.GetFileNameWithoutExtension(_path) + (_original != null ? T("_opgeschoond", "_cleaned") : "") + ".stl",
             InitialDirectory = Path.GetDirectoryName(_path),
         };
         if (dlg.ShowDialog(this) != true) return;
         try
         {
-            File.WriteAllBytes(dlg.FileName, StlWriter.WriteBinary(_stl.Triangles, _original != null ? "cleaned by RsConverter" : ""));
-            ShowToast("💾 STL opgeslagen", $"{Path.GetFileName(dlg.FileName)} · {_stl.Triangles.Count:N0} driehoekjes");
+            File.WriteAllBytes(dlg.FileName, StlWriter.WriteBinary(_stl.Triangles, _original != null ? "cleaned by StlConverter" : ""));
+            ShowToast(T("💾 STL opgeslagen", "💾 STL saved"), T($"{Path.GetFileName(dlg.FileName)} · {_stl.Triangles.Count:N0} driehoekjes", $"{Path.GetFileName(dlg.FileName)} · {_stl.Triangles.Count:N0} triangles"));
         }
         catch (IOException ex)
         {
-            MessageBox.Show(this, ex.Message, "Opslaan mislukt", MessageBoxButton.OK, MessageBoxImage.Warning);
+            MessageBox.Show(this, ex.Message, T("Opslaan mislukt", "Saving failed"), MessageBoxButton.OK, MessageBoxImage.Warning);
         }
     }
 
@@ -1221,11 +1246,11 @@ public partial class MainWindow : Window
         if (count > MaxEdgeLines)
         {
             EdgesBox.IsEnabled = false;
-            EdgesBox.ToolTip = $"{count:N0} randen: te veel om te tekenen (boven {MaxEdgeLines:N0} zie je alleen de vlakken, dat scheelt veel geheugen)";
+            EdgesBox.ToolTip = T($"{count:N0} randen: te veel om te tekenen (boven {MaxEdgeLines:N0} zie je alleen de vlakken, dat scheelt veel geheugen)", $"{count:N0} edges: too many to draw (above {MaxEdgeLines:N0} you only see the faces, which saves a lot of memory)");
             return;
         }
         EdgesBox.IsEnabled = true;
-        EdgesBox.ToolTip = "Randen tonen of verbergen";
+        EdgesBox.ToolTip = T("Randen tonen of verbergen", "Show or hide edges");
         var pts = new Point3DCollection(2 * count);
         for (int i = 0; i < tris.Count; i++)
             foreach (int j in _neighbours[i])
@@ -1282,9 +1307,9 @@ public partial class MainWindow : Window
         OpenFaceButtons.Visibility = inFace ? Visibility.Visible : Visibility.Collapsed;
         MeasureRow.Visibility = inFace ? Visibility.Collapsed : Visibility.Visible;
         SelectionText.Text = _addPick
-            ? $"👉 Klik nu op het vlak waar deze {_selection.Count:N0} driehoekjes bij moeten (Esc = annuleren)"
-            : inFace ? $"✋ {_selection.Count:N0} driehoekjes gekozen — haal ze uit dit vlak:"
-            : $"✋ {_selection.Count:N0} driehoekjes geselecteerd — maak er één vorm van:";
+            ? T($"👉 Klik nu op het vlak waar deze {_selection.Count:N0} driehoekjes bij moeten (Esc = annuleren)", $"👉 Now click the face these {_selection.Count:N0} triangles belong to (Esc = cancel)")
+            : inFace ? T($"✋ {_selection.Count:N0} driehoekjes gekozen — haal ze uit dit vlak:", $"✋ {_selection.Count:N0} triangles chosen — take them out of this face:")
+            : T($"✋ {_selection.Count:N0} driehoekjes geselecteerd — maak er één vorm van:", $"✋ {_selection.Count:N0} triangles selected — make one shape of them:");
     }
 
     private bool IsBaseMesh(MeshGeometry3D m) => ModelHost.Content is Model3DGroup g && g.Children.OfType<GeometryModel3D>().Any(x => x.Geometry == m);
@@ -1313,13 +1338,13 @@ public partial class MainWindow : Window
     {
         _legendCounts = counts;
         Legend.Children.Clear();
-        foreach (var (kind, name, color, _) in Kinds)
+        foreach (var (kind, color, _) in Kinds)
         {
             int n = counts.GetValueOrDefault(kind);
             if (n == 0) continue;
-            var chip = !_fullMode && kind == FaceKind.Facet ? Chip(RawColor, "Mesh", n.ToString("N0")) : Chip(color, name, n.ToString("N0"));
+            var chip = !_fullMode && kind == FaceKind.Facet ? Chip(RawColor, "Mesh", n.ToString("N0")) : Chip(color, KindName(kind), n.ToString("N0"));
             chip.Cursor = Cursors.Hand;
-            chip.ToolTip = _legendFilter == kind ? "Klik: weer alles tonen" : "Klik: alleen deze laten zien (de rest wordt doorzichtig)";
+            chip.ToolTip = _legendFilter == kind ? T("Klik: weer alles tonen", "Click: show everything again") : T("Klik: alleen deze laten zien (de rest wordt doorzichtig)", "Click: show only these (the rest becomes see-through)");
             if (_legendFilter == kind) { chip.BorderBrush = (Brush)FindResource("Accent"); chip.BorderThickness = new Thickness(2); }
             else if (_legendFilter != null) chip.Opacity = 0.55;
             var k = kind;
@@ -1328,9 +1353,9 @@ public partial class MainWindow : Window
         }
         if (_extraBodies.Count > 0)
         {
-            var chip = Chip(CoilColor, "Draad (apart lichaam)", _extraBodies.Count.ToString());
+            var chip = Chip(CoilColor, T("Draad (apart lichaam)", "Thread (separate body)"), _extraBodies.Count.ToString());
             chip.Cursor = Cursors.Hand;
-            chip.ToolTip = _threadFilter ? "Klik: weer alles tonen" : "Klik: alleen de draad laten zien";
+            chip.ToolTip = _threadFilter ? T("Klik: weer alles tonen", "Click: show everything again") : T("Klik: alleen de draad laten zien", "Click: show only the thread");
             if (_threadFilter) { chip.BorderBrush = (Brush)FindResource("Accent"); chip.BorderThickness = new Thickness(2); }
             else if (_legendFilter != null) chip.Opacity = 0.55;
             chip.MouseLeftButtonUp += (_, e) => { SetThreadFilter(!_threadFilter); e.Handled = true; };
@@ -1365,7 +1390,7 @@ public partial class MainWindow : Window
         double sx = pts.Max(p => p.X) - x0, sy = pts.Max(p => p.Y) - y0, sz = pts.Max(p => p.Z) - z0;
         double pad = Math.Max(Math.Max(sx, Math.Max(sy, sz)) * 0.5, _overlayLift * 50);
         View.ZoomExtents(new Rect3D(x0 - pad, y0 - pad, z0 - pad, sx + 2 * pad, sy + 2 * pad, sz + 2 * pad), 400);
-        ShowToast($"🔎 {_legendCounts.GetValueOrDefault(k):N0} × {Kinds.First(q => q.kind == k).name.ToLowerInvariant()}", "Ingezoomd. Klik nog eens op het kaartje om alles weer te zien.");
+        ShowToast($"🔎 {_legendCounts.GetValueOrDefault(k):N0} × {KindName(k).ToLowerInvariant()}", T("Ingezoomd. Klik nog eens op het kaartje om alles weer te zien.", "Zoomed in. Click the card again to see everything."));
     }
 
     private Border Chip(Color color, string name, string value)
@@ -1453,9 +1478,9 @@ public partial class MainWindow : Window
             var (patch, flat) = DoubleClickPatch(seed.Value);
             if (Removing) _selection.ExceptWith(patch); else _selection.UnionWith(patch);
             RebuildOverlay();
-            ShowToast(flat ? $"🪄 {patch.Count:N0} driehoekjes in hetzelfde vlak geselecteerd"
-                : AutoDoubleBox.IsChecked == true ? $"🪄 {patch.Count:N0} driehoekjes van dit gebogen stuk geselecteerd" : $"🪄 {patch.Count:N0} driehoekjes geselecteerd (helling tot {DoubleSlider.Value:0}° anders)",
-                "Kies hieronder wat het is.");
+            ShowToast(flat ? T($"🪄 {patch.Count:N0} driehoekjes in hetzelfde vlak geselecteerd", $"🪄 {patch.Count:N0} triangles in the same plane selected")
+                : AutoDoubleBox.IsChecked == true ? T($"🪄 {patch.Count:N0} driehoekjes van dit gebogen stuk geselecteerd", $"🪄 {patch.Count:N0} triangles of this curved piece selected") : T($"🪄 {patch.Count:N0} driehoekjes geselecteerd (helling tot {DoubleSlider.Value:0}° anders)", $"🪄 {patch.Count:N0} triangles selected (slope up to {DoubleSlider.Value:0}° different)"),
+                T("Kies hieronder wat het is.", "Choose below what it is."));
             e.Handled = true;
             return;
         }
@@ -1711,38 +1736,38 @@ public partial class MainWindow : Window
             if (k == _threadUndos.Count - 1)
             {
                 var undo = new Button { Content = "↩", Style = (Style)FindResource("PillButton"), Padding = new Thickness(8, 2, 8, 2), Margin = new Thickness(6, 0, 0, 0),
-                    ToolTip = "Draad terugzetten: de oorspronkelijke driehoekjes terug, de aparte draad weg" };
+                    ToolTip = T("Draad terugzetten: de oorspronkelijke driehoekjes terug, de aparte draad weg", "Put the thread back: the original triangles back, the separate thread gone") };
                 undo.Click += async (_, _) => { if (RecognizeButton.IsEnabled) await UndoThread(); };
                 DockPanel.SetDock(undo, Dock.Right);
                 row.Children.Add(undo);
             }
-            row.Children.Add(new TextBlock { Text = $"🔩 {_threadUndos[k].Name}: vervangen door gladde kern + draad", TextWrapping = TextWrapping.Wrap, VerticalAlignment = VerticalAlignment.Center });
+            row.Children.Add(new TextBlock { Text = T($"🔩 {_threadUndos[k].Name}: vervangen door gladde kern + draad", $"🔩 {_threadUndos[k].Name}: replaced by a smooth core + thread"), TextWrapping = TextWrapping.Wrap, VerticalAlignment = VerticalAlignment.Center });
             GroupList.Children.Add(row);
         }
         if (_groups.Count == 0) return;
-        GroupList.Children.Add(new TextBlock { Text = "Jouw groepen", FontWeight = FontWeights.SemiBold, Margin = new Thickness(0, 0, 0, 4) });
+        GroupList.Children.Add(new TextBlock { Text = T("Jouw groepen", "Your groups"), FontWeight = FontWeights.SemiBold, Margin = new Thickness(0, 0, 0, 4) });
         for (int gi = 0; gi < _groups.Count; gi++)
         {
             var (tris, kind) = _groups[gi];
             bool forced = _forcedGroups.Contains(tris), loose = _looseGroups.Contains(tris);
-            string what = loose ? "✂️ los (blijven driehoekjes)" : forced ? "📐 plat (gedwongen)" : kind == FaceKind.Facet ? "✨ kies zelf" : $"{Kinds.First(k => k.kind == kind).emoji} {Kinds.First(k => k.kind == kind).name.ToLowerInvariant()}";
+            string what = loose ? T("✂️ los (blijven driehoekjes)", "✂️ loose (stay triangles)") : forced ? T("📐 plat (gedwongen)", "📐 flat (forced)") : kind == FaceKind.Facet ? T("✨ kies zelf", "✨ choose itself") : $"{Kinds.First(k => k.kind == kind).emoji} {KindName(kind).ToLowerInvariant()}";
             string result = "";
             if (!loose && GroupApplied(_groups[gi]) && GroupFace(tris) is { } info)
             {
                 var c = CultureInfo.CurrentCulture;
                 result = info.Kind switch
                 {
-                    FaceKind.Cylinder or FaceKind.Sphere => string.Format(c, " → {0} r {1:0.###} mm", Kinds.First(k => k.kind == info.Kind).name.ToLowerInvariant(), info.Radius * 1000),
-                    FaceKind.Torus => string.Format(c, " → torus R {0:0.###} / r {1:0.###} mm", info.Radius * 1000, info.MinorRadius * 1000),
-                    FaceKind.Cone => string.Format(c, " → kegel, halve tophoek {0:0.###}°", Math.Atan(info.MinorRadius) * 180 / Math.PI),
-                    _ => " → vlak",
-                } + string.Format(c, forced ? ", punten tot {0:0.###} mm verschoven" : ", afwijking {0:0.###} mm", info.Deviation * 1000);
+                    FaceKind.Cylinder or FaceKind.Sphere => string.Format(c, T(" → {0} r {1:0.###} mm", " → {0} r {1:0.###} mm"), KindName(info.Kind).ToLowerInvariant(), info.Radius * 1000),
+                    FaceKind.Torus => string.Format(c, T(" → torus R {0:0.###} / r {1:0.###} mm", " → torus R {0:0.###} / r {1:0.###} mm"), info.Radius * 1000, info.MinorRadius * 1000),
+                    FaceKind.Cone => string.Format(c, T(" → kegel, halve tophoek {0:0.###}°", " → cone, half apex angle {0:0.###}°"), Math.Atan(info.MinorRadius) * 180 / Math.PI),
+                    _ => T(" → vlak", " → plane"),
+                } + string.Format(c, forced ? T(", punten tot {0:0.###} mm verschoven", ", points moved up to {0:0.###} mm") : T(", afwijking {0:0.###} mm", ", deviation {0:0.###} mm"), info.Deviation * 1000);
             }
             bool applied = GroupApplied(_groups[gi]);
             bool failed = _groupFailed.TryGetValue(tris, out var why);
             string status = applied ? "✅" : failed ? "❌" : "⏳";
-            if (failed) result = " — paste niet: " + why;
-            else if (!applied) result = " — nog niet herkend";
+            if (failed) result = T(" — paste niet: ", " — did not fit: ") + why;
+            else if (!applied) result = T(" — nog niet herkend", " — not recognised yet");
             var row = new DockPanel { Margin = new Thickness(0, 2, 0, 2) };
             int index = gi;
             var del = new Button { Content = "✖", Style = (Style)FindResource("PillButton"), Padding = new Thickness(8, 2, 8, 2), Margin = new Thickness(6, 0, 0, 0) };
@@ -1757,7 +1782,7 @@ public partial class MainWindow : Window
             row.Children.Add(del);
             row.Children.Add(new TextBlock
             {
-                Text = $"{status} {gi + 1}. {what} · {tris.Count:N0} driehoekjes{result}", TextWrapping = TextWrapping.Wrap, VerticalAlignment = VerticalAlignment.Center,
+                Text = T($"{status} {gi + 1}. {what} · {tris.Count:N0} driehoekjes{result}", $"{status} {gi + 1}. {what} · {tris.Count:N0} triangles{result}"), TextWrapping = TextWrapping.Wrap, VerticalAlignment = VerticalAlignment.Center,
                 Foreground = applied ? (Brush)FindResource("Ink") : failed ? new SolidColorBrush(Color.FromRgb(0xDC, 0x26, 0x26)) : new SolidColorBrush(GroupColor),
             });
             GroupList.Children.Add(row);
@@ -1797,7 +1822,7 @@ public partial class MainWindow : Window
             _faceLines = new LinesVisual3D { Points = pts, Color = Color.FromRgb(0x6D, 0x28, 0xD9), Thickness = 1.5 };
             View.Children.Add(_faceLines);
         }
-        FaceTitle.Text = $"🔍 {FaceName(info)} · {_openTris.Count:N0} driehoekjes";
+        FaceTitle.Text = T($"🔍 {FaceName(info)} · {_openTris.Count:N0} driehoekjes", $"🔍 {FaceName(info)} · {_openTris.Count:N0} triangles");
         FaceBar.Visibility = Visibility.Visible;
         RebuildOverlay();
     }
@@ -1830,11 +1855,11 @@ public partial class MainWindow : Window
         var c = CultureInfo.CurrentCulture;
         return info.Kind switch
         {
-            FaceKind.Cylinder => string.Format(c, "🥫 Cilinder r {0:0.###} mm", info.Radius * 1000),
-            FaceKind.Sphere => string.Format(c, "⚽ Bol r {0:0.###} mm", info.Radius * 1000),
-            FaceKind.Torus => string.Format(c, "🍩 Torus R {0:0.###} / r {1:0.###} mm", info.Radius * 1000, info.MinorRadius * 1000),
-            FaceKind.Cone => string.Format(c, "🍦 Kegel, halve tophoek {0:0.###}°", Math.Atan(info.MinorRadius) * 180 / Math.PI),
-            _ => "▭ Vlak",
+            FaceKind.Cylinder => string.Format(c, T("🥫 Cilinder r {0:0.###} mm", "🥫 Cylinder r {0:0.###} mm"), info.Radius * 1000),
+            FaceKind.Sphere => string.Format(c, T("⚽ Bol r {0:0.###} mm", "⚽ Sphere r {0:0.###} mm"), info.Radius * 1000),
+            FaceKind.Torus => string.Format(c, T("🍩 Torus R {0:0.###} / r {1:0.###} mm", "🍩 Torus R {0:0.###} / r {1:0.###} mm"), info.Radius * 1000, info.MinorRadius * 1000),
+            FaceKind.Cone => string.Format(c, T("🍦 Kegel, halve tophoek {0:0.###}°", "🍦 Cone, half apex angle {0:0.###}°"), Math.Atan(info.MinorRadius) * 180 / Math.PI),
+            _ => T("▭ Vlak", "▭ Plane"),
         };
     }
 
@@ -1905,7 +1930,7 @@ public partial class MainWindow : Window
         _planeMode = wasPlanes;
         _extraBodies.Add(r.Coil);
         var coilMesh = AddCoil(r.CoilTriangles);
-        string what = m.Standard ?? "de draad";
+        string what = m.Standard ?? T("de draad", "the thread");
         _threadUndos.Add(new ThreadUndo(before, r.NewIndexOf, oldLabels, oldSoft, r.Coil, coilMesh, what));
         Log($"thread replaced: {r.Removed} triangles, band {r.Band.Count}, coil {m.Describe(CultureInfo.InvariantCulture)}");
         // the core as a cylinder group; only around the new triangles is it converted again (the rest as it was)
@@ -1917,8 +1942,8 @@ public partial class MainWindow : Window
         _running = Recognize(this);
         await _running;
         // (after the group's own message)
-        string text = $"{r.Removed:N0} driehoekjes zijn een gladde kern geworden; {what} is een apart lichaam (goud). Bij opslaan komen beide mee: voeg ze in DesignSpark samen (Combine).";
-        ShowToast("🔩 Draad vervangen", text);
+        string text = T($"{r.Removed:N0} driehoekjes zijn een gladde kern geworden; {what} is een apart lichaam (goud). Bij opslaan komen beide mee: voeg ze in DesignSpark samen (Combine).", $"{r.Removed:N0} triangles became a smooth core; {what} is a separate body (gold). Both are saved: combine them in DesignSpark (Combine).");
+        ShowToast(T("🔩 Draad vervangen", "🔩 Thread replaced"), text);
         StatusText.Text += "\n🔩 " + text;
     }
 
@@ -1998,7 +2023,7 @@ public partial class MainWindow : Window
         Log($"thread replacement undone ({u.Name})");
         _running = Recognize(this);
         await _running;
-        ShowToast("↩ Draad teruggezet", $"{u.Name}: de oorspronkelijke driehoekjes zijn terug, de aparte draad is weg.");
+        ShowToast(T("↩ Draad teruggezet", "↩ Thread put back"), T($"{u.Name}: de oorspronkelijke driehoekjes zijn terug, de aparte draad is weg.", $"{u.Name}: the original triangles are back, the separate thread is gone."));
     }
 
     /// <summary>Measures the thread in the selection (<see cref="ThreadFit"/>); the model is not changed.</summary>
@@ -2012,21 +2037,21 @@ public partial class MainWindow : Window
         if (m == null || m.Fit < 0.6)
         {
             ThreadCard.Visibility = Visibility.Collapsed;
-            ShowToast("🔩 Geen draad gevonden", "In deze selectie liggen geen toppen op één schroeflijn. Selecteer alleen het draadgedeelte (de toverstaf of het penseel werkt goed).");
+            ShowToast(T("🔩 Geen draad gevonden", "🔩 No thread found"), T("In deze selectie liggen geen toppen op één schroeflijn. Selecteer alleen het draadgedeelte (de toverstaf of het penseel werkt goed).", "No crests in this selection lie on one helix. Select only the threaded part (the magic wand or the brush works well)."));
             return;
         }
         _thread = m;
         _threadSelection = _selection.ToList();
         ReplaceThreadButton.IsEnabled = !m.Internal;
-        ReplaceThreadButton.ToolTip = m.Internal ? "Binnendraad vervangen kan nog niet (alleen buitendraad)." : ReplaceThreadButton.ToolTip;
+        ReplaceThreadButton.ToolTip = m.Internal ? T("Binnendraad vervangen kan nog niet (alleen buitendraad).", "Replacing an internal thread is not possible yet (only external threads).") : ReplaceThreadButton.ToolTip;
         string what = m.Describe(c);
-        string where = string.Format(c, "as door ({0:0.###}; {1:0.###}; {2:0.###}) mm, richting ({3:0.###}; {4:0.###}; {5:0.###})",
+        string where = string.Format(c, T("as door ({0:0.###}; {1:0.###}; {2:0.###}) mm, richting ({3:0.###}; {4:0.###}; {5:0.###})", "axis through ({0:0.###}; {1:0.###}; {2:0.###}) mm, direction ({3:0.###}; {4:0.###}; {5:0.###})"),
             m.AxisPoint.X * 1000, m.AxisPoint.Y * 1000, m.AxisPoint.Z * 1000, m.Axis.X, m.Axis.Y, m.Axis.Z);
         // a card that stays (a toast was gone before it was read)
-        ThreadTitle.Text = "🔩 " + (m.Standard ?? "Schroefdraad (geen standaard M-maat)") + (m.Internal ? " binnendraad" : " buitendraad");
+        ThreadTitle.Text = "🔩 " + (m.Standard ?? T("Schroefdraad (geen standaard M-maat)", "Screw thread (no standard M size)")) + (m.Internal ? T(" binnendraad", " internal thread") : T(" buitendraad", " external thread"));
         ThreadText.Text = string.Format(c,
-            "{0}, {1}\nbuiten-Ø {2:0.##} mm · kern-Ø {3:0.##} mm\nspoed {4:0.###} mm · flankhoek {5:0}°\n{6:0.#} mm lang ({7:0.#} gangen)\n{8}\nzekerheid {9:0}%",
-            m.Internal ? "binnendraad" : "buitendraad", m.RightHanded ? "rechts" : "links", m.MajorDiameter * 1000, m.MinorDiameter * 1000,
+            T("{0}, {1}\nbuiten-Ø {2:0.##} mm · kern-Ø {3:0.##} mm\nspoed {4:0.###} mm · flankhoek {5:0}°\n{6:0.#} mm lang ({7:0.#} gangen)\n{8}\nzekerheid {9:0}%", "{0}, {1}\nouter Ø {2:0.##} mm · core Ø {3:0.##} mm\npitch {4:0.###} mm · flank angle {5:0}°\n{6:0.#} mm long ({7:0.#} turns)\n{8}\ncertainty {9:0}%"),
+            m.Internal ? T("binnendraad", "internal thread") : T("buitendraad", "external thread"), m.RightHanded ? T("rechts", "right-handed") : T("links", "left-handed"), m.MajorDiameter * 1000, m.MinorDiameter * 1000,
             m.Pitch * 1000, m.ProfileAngleDeg, m.Length * 1000, m.Turns, where, m.Fit * 100);
         ThreadCard.Visibility = Visibility.Visible;
         StatusText.Text = "🔩 " + what;
@@ -2043,12 +2068,12 @@ public partial class MainWindow : Window
         if (_selection.Count == 0) return;
         if (_labels == null || !_labels.Faces.SelectMany(f => f).Any(f => f.Kind != FaceKind.Facet))
         {
-            ShowToast("➕ Nog geen vlakken", "Herken eerst (✨, of maak een groep); daarna kun je driehoekjes bij een vlak voegen.");
+            ShowToast(T("➕ Nog geen vlakken", "➕ No faces yet"), T("Herken eerst (✨, of maak een groep); daarna kun je driehoekjes bij een vlak voegen.", "Recognise first (✨, or make a group); then you can add triangles to a face."));
             return;
         }
         _addPick = true;
         RebuildOverlay();
-        ShowToast("👉 Klik op het vlak", $"De {_selection.Count:N0} geselecteerde driehoekjes gaan bij het vlak waar je nu op klikt. Esc = annuleren.");
+        ShowToast(T("👉 Klik op het vlak", "👉 Click the face"), T($"De {_selection.Count:N0} geselecteerde driehoekjes gaan bij het vlak waar je nu op klikt. Esc = annuleren.", $"The {_selection.Count:N0} selected triangles go to the face you click now. Esc = cancel."));
     }
 
     /// <summary>The selection and the face of <paramref name="target"/> become one group of that face's kind (a group the
@@ -2057,13 +2082,13 @@ public partial class MainWindow : Window
     {
         if (_selection.Contains(target))
         {
-            ShowToast("👉 Klik op een ander vlak", "Dat is de selectie zelf; klik op het vlak waar ze bij moeten (Esc = annuleren).");
+            ShowToast(T("👉 Klik op een ander vlak", "👉 Click another face"), T("Dat is de selectie zelf; klik op het vlak waar ze bij moeten (Esc = annuleren).", "That is the selection itself; click the face they belong to (Esc = cancel)."));
             return;
         }
         var info = InfoOf(target);
         if (info is not { Kind: not FaceKind.Facet })
         {
-            ShowToast("🤔 Dat is geen vlak", "Klik op een herkend (gekleurd) vlak, niet op losse driehoekjes. Esc = annuleren.");
+            ShowToast(T("🤔 Dat is geen vlak", "🤔 That is not a face"), T("Klik op een herkend (gekleurd) vlak, niet op losse driehoekjes. Esc = annuleren.", "Click a recognised (coloured) face, not loose triangles. Esc = cancel."));
             return;
         }
         var face = _faceOf[target];
@@ -2079,8 +2104,8 @@ public partial class MainWindow : Window
         {
             // the bare mesh: only the triangle's number (stable: its place in the file)
             HighlightHost.Content = null;
-            PickTitle.Text = "🔺  Driehoekje";
-            PickText.Text = $"nr. {source}";
+            PickTitle.Text = T("🔺  Driehoekje", "🔺  Triangle");
+            PickText.Text = T($"nr. {source}", $"no. {source}");
             OpenFaceButton.Visibility = Visibility.Collapsed;
             PickCard.Visibility = Visibility.Visible;
             return;
@@ -2102,16 +2127,16 @@ public partial class MainWindow : Window
         var c = CultureInfo.CurrentCulture;
         string size = info.Kind switch
         {
-            FaceKind.Cylinder or FaceKind.Sphere => string.Format(c, ", straal {0:0.####} mm", info.Radius * 1000),
+            FaceKind.Cylinder or FaceKind.Sphere => string.Format(c, T(", straal {0:0.####} mm", ", radius {0:0.####} mm"), info.Radius * 1000),
             FaceKind.Torus => string.Format(c, ", R {0:0.####} mm, r {1:0.####} mm", info.Radius * 1000, info.MinorRadius * 1000),
-            FaceKind.Cone => string.Format(c, ", halve tophoek {0:0.####}°", Math.Atan(info.MinorRadius) * 180 / Math.PI),
+            FaceKind.Cone => string.Format(c, T(", halve tophoek {0:0.####}°", ", half apex angle {0:0.####}°"), Math.Atan(info.MinorRadius) * 180 / Math.PI),
             _ => "",
         };
         var k = Kinds.First(x => x.kind == info.Kind);
-        PickTitle.Text = $"{k.emoji}  {k.name}{size}";
-        PickText.Text = $"{n:N0} driehoekjes · body {face.body + 1}, vlak {face.face + 1} · aangeklikt driehoekje nr. {source}"
-            + (info.Group >= 0 ? string.Format(c, " · jouw groep {0}, afwijking {1:0.###} mm", info.Group + 1, info.Deviation * 1000) : "")
-            + "\nShift-klik = dit hele vlak selecteren · Shift-dubbelklik = openen.";
+        PickTitle.Text = $"{k.emoji}  {KindName(k.kind)}{size}";
+        PickText.Text = T($"{n:N0} driehoekjes · body {face.body + 1}, vlak {face.face + 1} · aangeklikt driehoekje nr. {source}", $"{n:N0} triangles · body {face.body + 1}, face {face.face + 1} · clicked triangle no. {source}")
+            + (info.Group >= 0 ? string.Format(c, T(" · jouw groep {0}, afwijking {1:0.###} mm", " · your group {0}, deviation {1:0.###} mm"), info.Group + 1, info.Deviation * 1000) : "")
+            + T("\nShift-klik = dit hele vlak selecteren · Shift-dubbelklik = openen.", "\nShift-click = select this whole face · Shift-double-click = open.");
         _picked = source;
         OpenFaceButton.Visibility = info.Kind == FaceKind.Facet ? Visibility.Collapsed : Visibility.Visible;
         PickCard.Visibility = Visibility.Visible;

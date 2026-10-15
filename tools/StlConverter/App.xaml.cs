@@ -2,7 +2,7 @@
 using System.Data;
 using System.Windows;
 
-namespace RsConverterUI;
+namespace StlConverter;
 
 /// <summary>
 /// Interaction logic for App.xaml
