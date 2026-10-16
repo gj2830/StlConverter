@@ -84,7 +84,7 @@ public static class RsDocxComposer
         var named = new List<(Brep.BrepBody, Brep.BrepNames)>();
         foreach (var p in bodies)
         {
-            var bi = alloc.ForBody(p.Faces.Count, p.Edges.Count);
+            var bi = alloc.ForBody(p.Faces.Count, p.Edges.Count, p.Sheet);
             ids.Add(bi);
             named.Add((p, new Brep.BrepNames { Body = bi.Body, Faces = bi.Faces, Edges = bi.Edges }));
         }
@@ -105,7 +105,7 @@ public static class RsDocxComposer
         {
             var all = bodies.SelectMany(BoundingPoints).Select(v => (v.X, v.Y, v.Z)).ToList();
             var rl = pkg.GetXml(RenderListPart);
-            DocumentBuilder.UpdateRenderList(rl, ids.Select(i => i.Body).ToList(),
+            DocumentBuilder.UpdateRenderList(rl, ids.Select(i => (i.Body, i.Sheet)).ToList(),
                 (all.Min(v => v.X), all.Min(v => v.Y), all.Min(v => v.Z), all.Max(v => v.X), all.Max(v => v.Y), all.Max(v => v.Z)));
             pkg.SetXml(RenderListPart, rl);
         }

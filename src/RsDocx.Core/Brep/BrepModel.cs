@@ -44,4 +44,10 @@ public sealed class BrepBody
     public required IReadOnlyList<Vec3> Vertices { get; init; }
     public required IReadOnlyList<BrepEdge> Edges { get; init; }
     public required IReadOnlyList<BrepFace> Faces { get; init; }
+
+    /// <summary>
+    /// Faces without thickness (DesignSpark's "Oppervlak", a layout body; testdata/oppervlak.rsdocx) instead of a closed
+    /// solid: an edge on the border of the faces is used by one face only (once, in one direction).
+    /// </summary>
+    public bool Sheet { get; init; }
 }

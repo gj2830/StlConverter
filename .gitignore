@@ -11,6 +11,7 @@ testdata/*
 !testdata/kubus.rsdocx
 !testdata/kubus.stl
 !testdata/kubus_kleuren.rsdocx
+!testdata/oppervlak.rsdocx
 !testdata/sleutelrek.rsdocx
 !testdata/sleutelrek.stl
 !testdata/schaaltje.rsdocx

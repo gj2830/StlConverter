@@ -44,6 +44,7 @@ public static class XtValidator
                 double faceSign = (face.Byte("sense") == '+' ? 1 : -1) * (surf.Byte("sense") == '+' ? 1 : -1);
 
                 int ccwLoops = 0, loopCount = 0;
+                bool unknownDirection = false; // a loop whose direction cannot be told: the face as a whole is not checked
                 var wrapping = new List<(double turn, double v)>(); // loops going all the way around a cylinder
                 var wrappingTube = new List<(double turn, double u)>(); // loops going around the tube of a torus
                 foreach (var loop in XtTopology.Chain(map, face.Ptr("loop"), "next"))
@@ -58,6 +59,15 @@ public static class XtValidator
                         var fin = map[cur];
                         if (fin.Ptr("loop") != loop.Index) Err($"fin {cur}: loop mismatch");
                         if (map[fin.Ptr("forward")].Ptr("backward") != cur) Err($"fin {cur}: forward/backward mismatch");
+                        if (fin.Ptr("edge") == 0)
+                        {
+                            // a loop that is one point (where a closed free-form face comes to a point, kubus_getrokken.rsdocx):
+                            // a fin without edge or other fin, only its vertex
+                            if (fin.Ptr("other") != 0 || fin.Ptr("vertex") == 0 || fin.Ptr("forward") != cur) Err($"fin {cur}: fin without an edge is not a point loop");
+                            skipOrientation = true;
+                            cur = fin.Ptr("forward");
+                            continue;
+                        }
                         var other = map[fin.Ptr("other")];
                         if (other.Ptr("other") != cur) Err($"fin {cur}: other/other mismatch");
                         if (other.Ptr("edge") != fin.Ptr("edge")) Err($"fin {cur}: other on different edge");
@@ -108,13 +118,14 @@ public static class XtValidator
 
                     // outer loop runs counter-clockwise seen from outside (positive area in surface (u,v) space)
                     // (a B-surface's loops are checked for lying on it, not for their direction: no (u, v) projection yet)
-                    if (skipOrientation || bsurf) { ccwLoops = -1000; continue; }
+                    if (skipOrientation || bsurf) { ccwLoops = -1000; unknownDirection = true; continue; }
                     var (area, turn, meanV, turnV, meanU) = ParamArea(surf, samples);
                     if (Math.Abs(turn) > Math.PI && Math.Abs(turnV) > Math.PI) Err($"face {face.Index}: loop winds around both directions of the torus");
                     else if (Math.Abs(turnV) > Math.PI) wrappingTube.Add((turnV * faceSign, meanU));
                     else if (Math.Abs(turn) > Math.PI) wrapping.Add((turn * faceSign, meanV));
                     else if (area * faceSign > 0) ccwLoops++;
                 }
+                if (unknownDirection) continue;
                 if (loopCount == 0)
                 {
                     // only a closed surface (full sphere) may be a face without boundary
@@ -181,7 +192,10 @@ public static class XtValidator
             // a ring edge without vertex counts like an edge with one vertex
             int ringEdges = body.Edges.Count(e => map[map[e.Index].Ptr("fin")].Ptr("vertex") == 0);
             int chi = body.Vertices.Count + ringEdges - body.Edges.Count + 2 * body.Faces.Count - totalLoops;
-            if (chi > 2 || chi % 2 != 0) Err($"body {body.Index}: V-E+2F-L = {chi}, expected 2 - 2*genus");
+            // faces without thickness (an edge with a fin in no loop, oppervlak.rsdocx): per shell 2 - 2*genus - borders
+            bool sheet = body.Edges.Any(e => map[e.Index].Ptr("fin") is int f && (map[f].Ptr("loop") == 0 || map[map[f].Ptr("other")].Ptr("loop") == 0));
+            int shells = XtTopology.Chain(map, b.Ptr("region"), "next").Sum(r => XtTopology.Chain(map, r.Ptr("shell"), "next").Count());
+            if (sheet ? chi > shells : chi > 2 || chi % 2 != 0) Err($"body {body.Index}: V-E+2F-L = {chi}, expected {(sheet ? $"at most {shells} (one per piece)" : "2 - 2*genus")}");
         }
         return errors;
     }

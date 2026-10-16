@@ -15,7 +15,8 @@ public sealed class BrepNames
 /// Writes <see cref="BrepBody"/>s as Parasolid XT, following the structure SpaceClaim/DesignSpark uses
 /// (see NOTES.md: kubus.rsdocx for topology, sleutelrek.rsdocx for cylinders and circles):
 ///  - root PART_XMT_BLOCK, per body BODY (body_type 3) with two void regions; inner shell has all faces as back faces,
-///    outer shell as front faces;
+///    outer shell as front faces (faces without thickness, oppervlak.rsdocx: one void region, a shell per connected
+///    piece holding its faces as back and as front faces, and a fin without a loop on the other side of a border edge);
 ///  - curves and surfaces get sense '+', faces get sense '-' when reversed;
 ///  - body, faces and edges carry an SDL/TYSA_NAME attribute with the document.xml moniker.
 /// The header, embedded schema and name attribute are DesignSpark's own (<see cref="XtDesignSpark"/>).
@@ -118,12 +119,18 @@ public sealed class XtBrepBuilder
         int nv = body.Vertices.Count, ne = body.Edges.Count, nf = body.Faces.Count;
         if (names.Faces.Count != nf || names.Edges.Count != ne) throw new ArgumentException("One name per face and per edge required");
         var loops = body.Faces.SelectMany((f, fi) => f.Loops.Select(l => (Face: fi, Coedges: l))).ToList();
-        CheckTopology(body, loops.Select(l => l.Coedges).ToList());
+        CheckTopology(body, loops.Select(l => l.Coedges).ToList(), body.Sheet);
         a.NextNodeId = 1; // node ids are unique per body (reference bodies restart their numbering)
+        // faces without thickness, as in testdata/oppervlak.rsdocx: one void region with a shell per connected piece, in
+        // which every face is both a back and a front face; an edge on the border has a second fin without a loop
+        var pieces = body.Sheet ? Pieces(body) : [];
+        var used = loops.SelectMany(l => l.Coedges).ToHashSet();
+        var bare = body.Sheet ? Enumerable.Range(0, ne).SelectMany(e => new[] { new BrepCoedge(e, true), new BrepCoedge(e, false) }).Where(c => !used.Contains(c)).ToList() : [];
 
         int firstNode = a.Nodes.Count; // this body's nodes start here (for the owner lookup below)
         int iList = a.Take(), iPlb = a.Take();
-        int iRegOut = a.Take(), iRegIn = a.Take(), iShIn = a.Take(), iShOut = a.Take();
+        int iRegOut = a.Take(), iRegIn = body.Sheet ? 0 : a.Take(), iShIn = body.Sheet ? 0 : a.Take(), iShOut = body.Sheet ? 0 : a.Take();
+        int[] iShells = pieces.Select(_ => a.Take()).ToArray();
         int[] iVert = Enumerable.Range(0, nv).Select(_ => a.Take()).ToArray();
         int[] iPoint = Enumerable.Range(0, nv).Select(_ => a.Take()).ToArray();
         int[] iEdge = Enumerable.Range(0, ne).Select(_ => a.Take()).ToArray();
@@ -133,6 +140,9 @@ public sealed class XtBrepBuilder
         int nl = loops.Count;
         int[] iLoop = Enumerable.Range(0, nl).Select(_ => a.Take()).ToArray();
         int[][] iFin = loops.Select(l => l.Coedges.Select(_ => a.Take()).ToArray()).ToArray();
+        int[] iBare = bare.Select(_ => a.Take()).ToArray();
+        var shellOfFace = new int[nf];
+        for (int k = 0; k < pieces.Count; k++) foreach (int fi in pieces[k]) shellOfFace[fi] = iShells[k];
 
         var b = New(a, XtNodeTypes.Body, iBody);
         b["res_size"] = 1000.0000000000001; // as observed
@@ -143,7 +153,7 @@ public sealed class XtBrepBuilder
         b["body_type"] = (byte)3;           // as observed (see NOTES.md)
         b["nom_geom_state"] = (byte)1;
         b["attribute_chains"] = iList;
-        b["shell"] = iShIn;
+        b["shell"] = body.Sheet ? iShells[0] : iShIn;
         b["region"] = iRegOut;
         b["boundary_surface"] = iSurf[0];
         b["boundary_curve"] = ne > 0 ? iCurve[0] : 0;
@@ -151,20 +161,39 @@ public sealed class XtBrepBuilder
         b["edge"] = ne > 0 ? iEdge[0] : 0;
         b["vertex"] = nv > 0 ? iVert[0] : 0;
 
-        var regOut = New(a, XtNodeTypes.Region, iRegOut);
-        regOut["body"] = iBody; regOut["next"] = iRegIn; regOut["shell"] = iShOut; regOut["type"] = (byte)'V';
-        var regIn = New(a, XtNodeTypes.Region, iRegIn);
-        regIn["body"] = iBody; regIn["previous"] = iRegOut; regIn["shell"] = iShIn; regIn["type"] = (byte)'V';
-        var shIn = New(a, XtNodeTypes.Shell, iShIn);
-        shIn["body"] = iBody; shIn["face"] = iFace[0]; shIn["region"] = iRegIn;
-        var shOut = New(a, XtNodeTypes.Shell, iShOut);
-        shOut["region"] = iRegOut; shOut["front_face"] = iFace[0];
+        var regionsAndShells = new List<XtNode>();
+        if (body.Sheet)
+        {
+            var reg = New(a, XtNodeTypes.Region, iRegOut);
+            reg["body"] = iBody; reg["shell"] = iShells[0]; reg["type"] = (byte)'V';
+            regionsAndShells.Add(reg);
+            for (int k = 0; k < pieces.Count; k++)
+            {
+                var sh = New(a, XtNodeTypes.Shell, iShells[k]);
+                sh["body"] = iBody; sh["region"] = iRegOut; sh["next"] = k + 1 < pieces.Count ? iShells[k + 1] : 0;
+                sh["face"] = iFace[pieces[k][0]]; sh["front_face"] = iFace[pieces[k][0]];
+                regionsAndShells.Add(sh);
+            }
+        }
+        else
+        {
+            var regOut = New(a, XtNodeTypes.Region, iRegOut);
+            regOut["body"] = iBody; regOut["next"] = iRegIn; regOut["shell"] = iShOut; regOut["type"] = (byte)'V';
+            var regIn = New(a, XtNodeTypes.Region, iRegIn);
+            regIn["body"] = iBody; regIn["previous"] = iRegOut; regIn["shell"] = iShIn; regIn["type"] = (byte)'V';
+            var shIn = New(a, XtNodeTypes.Shell, iShIn);
+            shIn["body"] = iBody; shIn["face"] = iFace[0]; shIn["region"] = iRegIn;
+            var shOut = New(a, XtNodeTypes.Shell, iShOut);
+            shOut["region"] = iRegOut; shOut["front_face"] = iFace[0];
+            regionsAndShells.AddRange([regOut, regIn, shIn, shOut]);
+        }
 
         // ---- fins
         var finOfCoedge = new Dictionary<(int edge, bool fwd), int>();
         for (int li = 0; li < nl; li++)
             for (int k = 0; k < loops[li].Coedges.Count; k++)
                 finOfCoedge[(loops[li].Coedges[k].Edge, loops[li].Coedges[k].Forward)] = iFin[li][k];
+        for (int k = 0; k < bare.Count; k++) finOfCoedge[(bare[k].Edge, bare[k].Forward)] = iBare[k];
         var finsAtVx = Enumerable.Range(0, nv).Select(_ => new List<int>()).ToArray();
         var finNodes = new Dictionary<int, XtNode>();
         for (int li = 0; li < nl; li++)
@@ -187,6 +216,20 @@ public sealed class XtBrepBuilder
                 if (end >= 0) finsAtVx[end].Add(iFin[li][k]);
                 finNodes[iFin[li][k]] = fin;
             }
+        }
+        // (the other side of an edge on the border of faces without thickness: a fin in no loop, as DesignSpark writes it)
+        for (int k = 0; k < bare.Count; k++)
+        {
+            var (e, fwd) = (bare[k].Edge, bare[k].Forward);
+            var edge = body.Edges[e];
+            int end = fwd ? edge.End : edge.Start;
+            var fin = New(a, XtNodeTypes.Fin, iBare[k]);
+            fin["vertex"] = end >= 0 ? iVert[end] : 0;
+            fin["other"] = finOfCoedge[(e, !fwd)];
+            fin["edge"] = iEdge[e];
+            fin["sense"] = (byte)(fwd ? '+' : '-');
+            if (end >= 0) finsAtVx[end].Add(iBare[k]);
+            finNodes[iBare[k]] = fin;
         }
         for (int v = 0; v < nv; v++)
             for (int k = 0; k + 1 < finsAtVx[v].Count; k++)
@@ -328,14 +371,22 @@ public sealed class XtBrepBuilder
             fc["previous"] = fi > 0 ? iFace[fi - 1] : 0;
             fc["loop"] = faceLoops.Count > 0 ? iLoop[faceLoops[0]] : 0; // a full sphere has no loops
             fc["shell"] = iShIn;
+            fc["next_front"] = fi + 1 < nf ? iFace[fi + 1] : 0;
+            fc["previous_front"] = fi > 0 ? iFace[fi - 1] : 0;
+            fc["front_shell"] = iShOut;
+            if (body.Sheet)
+            {
+                // (the faces of its piece, chained the same way as back and as front faces of its shell)
+                var piece = pieces.First(p => p.Contains(fi)); int at = piece.IndexOf(fi);
+                int nxt = at + 1 < piece.Count ? iFace[piece[at + 1]] : 0, prv = at > 0 ? iFace[piece[at - 1]] : 0;
+                fc["next"] = nxt; fc["previous"] = prv; fc["next_front"] = nxt; fc["previous_front"] = prv;
+                fc["shell"] = shellOfFace[fi]; fc["front_shell"] = shellOfFace[fi];
+            }
             fc["surface"] = iSurf[fi];
             // a hollow cone: SpaceClaim reverses the surface, not the face (schaaltje.rsdocx: CONE sense '-', FACE '+');
             // other surfaces: the face is reversed
             bool flipSurface = face.Reversed && face.Surface is BrepCone;
             fc["sense"] = (byte)(face.Reversed && !flipSurface ? '-' : '+');
-            fc["next_front"] = fi + 1 < nf ? iFace[fi + 1] : 0;
-            fc["previous_front"] = fi > 0 ? iFace[fi - 1] : 0;
-            fc["front_shell"] = iShOut;
             for (int k = 0; k < faceLoops.Count; k++)
             {
                 int li = faceLoops[k];
@@ -469,20 +520,42 @@ public sealed class XtBrepBuilder
         plb["n_entries"] = 1;
         plb.Array("entries")[0] = attrIdx[0];
 
-        foreach (var n in new[] { regOut, regIn, shIn, shOut }) n["node_id"] = a.Id();
+        foreach (var n in regionsAndShells) n["node_id"] = a.Id();
         b["highest_node_id"] = a.NextNodeId - 1;
     }
 
     /// <summary>Why the body cannot be written (an edge not used once in each direction, a loop not connected), or null.</summary>
     public static string? TopologyError(BrepBody body)
     {
-        try { CheckTopology(body, body.Faces.SelectMany(f => f.Loops).ToList()); return null; }
+        try { CheckTopology(body, body.Faces.SelectMany(f => f.Loops).ToList(), body.Sheet); return null; }
         catch (ArgumentException e) { return e.Message; }
     }
 
-    /// <summary>Every edge must be used exactly once forward and once backward; loops must be connected.</summary>
-    private static void CheckTopology(BrepBody body, List<IReadOnlyList<BrepCoedge>> loops)
+    /// <summary>The faces of faces without thickness in connected pieces (sharing an edge or a corner), in order.</summary>
+    private static List<List<int>> Pieces(BrepBody body)
     {
+        int nf = body.Faces.Count;
+        var parent = Enumerable.Range(0, nf).ToArray();
+        int Root(int f) { while (parent[f] != f) f = parent[f] = parent[parent[f]]; return f; }
+        var byEdge = new Dictionary<int, int>(); var byVertex = new Dictionary<int, int>();
+        for (int fi = 0; fi < nf; fi++)
+            foreach (var c in body.Faces[fi].Loops.SelectMany(l => l))
+            {
+                var e = body.Edges[c.Edge];
+                foreach (var (map, key) in new[] { (byEdge, c.Edge), (byVertex, e.Start), (byVertex, e.End) })
+                {
+                    if (key < 0) continue;
+                    if (map.TryGetValue(key, out int other)) parent[Root(other)] = Root(fi); else map[key] = fi;
+                }
+            }
+        return Enumerable.Range(0, nf).GroupBy(Root).OrderBy(g => g.Min()).Select(g => g.ToList()).ToList();
+    }
+
+    /// <summary>Every edge must be used exactly once forward and once backward (faces without thickness: an edge on their
+    /// border once, in either direction); loops must be connected.</summary>
+    private static void CheckTopology(BrepBody body, List<IReadOnlyList<BrepCoedge>> loops, bool sheet = false)
+    {
+        if (body.Faces.Count == 0) throw new ArgumentException("No faces");
         var uses = new Dictionary<(int, bool), int>();
         foreach (var l in loops)
         {
@@ -497,8 +570,11 @@ public sealed class XtBrepBuilder
             }
         }
         for (int e = 0; e < body.Edges.Count; e++)
-            if (uses.GetValueOrDefault((e, true)) != 1 || uses.GetValueOrDefault((e, false)) != 1)
-                throw new ArgumentException($"Edge {e} is not used exactly once in each direction");
+        {
+            int f = uses.GetValueOrDefault((e, true)), b = uses.GetValueOrDefault((e, false));
+            if (sheet ? f > 1 || b > 1 || f + b == 0 : f != 1 || b != 1)
+                throw new ArgumentException(sheet ? $"Edge {e} is not used once or once in each direction" : $"Edge {e} is not used exactly once in each direction");
+        }
     }
 
     private static object CloneValue(object v) => v switch

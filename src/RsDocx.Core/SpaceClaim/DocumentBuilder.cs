@@ -3,8 +3,9 @@ using System.Xml.Linq;
 
 namespace RsDocx.Core.SpaceClaim;
 
-/// <summary>Monikers for one body as they appear in document.xml and in the x_b name attributes.</summary>
-public sealed record BodyIds(string Body, string BodyUpdateState, IReadOnlyList<string> Faces, IReadOnlyList<string> Edges, string Caption);
+/// <summary>Monikers for one body as they appear in document.xml and in the x_b name attributes; <see cref="Sheet"/>: faces
+/// without thickness (see <see cref="Brep.BrepBody.Sheet"/>).</summary>
+public sealed record BodyIds(string Body, string BodyUpdateState, IReadOnlyList<string> Faces, IReadOnlyList<string> Edges, string Caption, bool Sheet = false);
 
 /// <summary>Hands out monikers "&lt;prefix&gt;:&lt;n&gt;" from a counter.</summary>
 public sealed class MonikerAllocator(int prefix, int start)
@@ -12,11 +13,11 @@ public sealed class MonikerAllocator(int prefix, int start)
     public int Next { get; private set; } = start;
     public string Take() => $"{prefix}:{Next++}";
 
-    public BodyIds ForBody(int faceCount, int edgeCount) => new(
+    public BodyIds ForBody(int faceCount, int edgeCount, bool sheet = false) => new(
         Take(), Take(),
         Enumerable.Range(0, faceCount).Select(_ => Take()).ToList(),
         Enumerable.Range(0, edgeCount).Select(_ => Take()).ToList(),
-        Take());
+        Take(), sheet);
 }
 
 /// <summary>
@@ -60,6 +61,8 @@ public static class DocumentBuilder
                 // (its own moniker, as DesignSpark writes a caption; an empty one keeps DesignSpark from opening the file)
                 c.Element(Presentation + "updateState")!.Value = b.Caption;
                 c.Element(Presentation + "subjectId")!.Value = b.Body;
+                // (faces without thickness: as DesignSpark named them in testdata/oppervlak.rsdocx)
+                if (b.Sheet) c.Element(Presentation + "name")!.Value = "Oppervlak";
                 pres.Add(c);
             }
 
@@ -102,7 +105,11 @@ public static class DocumentBuilder
         {
             string n = child.Name.LocalName;
             if (n is "updateState" or "NominalFaceDef" or "NominalEdgeDef") continue;
-            e.Add(new XElement(child));
+            var copy = new XElement(child);
+            // faces without thickness: a layout body, transparent (testdata/oppervlak.rsdocx)
+            if (ids.Sheet && n == "type") copy.Value = "Layout";
+            if (ids.Sheet && n == "fillStyle") copy.Value = "Transparent";
+            e.Add(copy);
         }
         foreach (var f in ids.Faces)
             e.Add(new XElement(Nom + "NominalFaceDef", new XAttribute("Id", f), new XElement(Nom + "updateState", f)));
@@ -113,7 +120,12 @@ public static class DocumentBuilder
     }
 
     /// <summary>Rewrites renderlist.xml for the given bodies and bounding box (metres).</summary>
-    public static void UpdateRenderList(XDocument renderList, IReadOnlyList<string> bodyIds, (double x0, double y0, double z0, double x1, double y1, double z1) box)
+    public static void UpdateRenderList(XDocument renderList, IReadOnlyList<string> bodyIds, (double x0, double y0, double z0, double x1, double y1, double z1) box) =>
+        UpdateRenderList(renderList, bodyIds.Select(id => (id, false)).ToList(), box);
+
+    /// <summary>Rewrites renderlist.xml for the given bodies (with whether each is faces without thickness) and bounding
+    /// box (metres).</summary>
+    public static void UpdateRenderList(XDocument renderList, IReadOnlyList<(string Id, bool Sheet)> bodies, (double x0, double y0, double z0, double x1, double y1, double z1) box)
     {
         string boxStr = string.Join(",", new[] { box.x0, box.y0, box.z0, box.x1, box.y1, box.z1 }.Select(d => d.ToString("R", CultureInfo.InvariantCulture)));
         foreach (var view in renderList.Root!.Elements("View"))
@@ -125,13 +137,22 @@ public static class DocumentBuilder
                 var proto = item.Elements("Body").FirstOrDefault() ?? new XElement("Body", new XAttribute("Visible", "1"), new XAttribute("Color", "-7360625"),
                     new XAttribute("FillStyle", "1"), new XAttribute("BodyType", "0"), new XAttribute("RenderingStyle", "1"), new XAttribute("FinishStyle", "3"));
                 item.Elements("Body").Remove();
-                foreach (var id in bodyIds)
+                foreach (var (id, sheet) in bodies)
                 {
                     var b = new XElement(proto);
                     b.SetAttributeValue("Id", id);
+                    if (sheet)
+                    {
+                        // as DesignSpark wrote faces without thickness in testdata/oppervlak.rsdocx: transparent fill, body
+                        // type 2, the colour at 40 % opacity (alpha 0x66)
+                        int argb = int.Parse((string?)b.Attribute("Color") ?? "-7360625", CultureInfo.InvariantCulture);
+                        b.SetAttributeValue("Color", ((argb & 0x00FFFFFF) | 0x66000000).ToString(CultureInfo.InvariantCulture));
+                        b.SetAttributeValue("FillStyle", "3");
+                        b.SetAttributeValue("BodyType", "2");
+                    }
                     item.Add(b);
                 }
-                item.SetAttributeValue("Bodies", bodyIds.Count.ToString(CultureInfo.InvariantCulture));
+                item.SetAttributeValue("Bodies", bodies.Count.ToString(CultureInfo.InvariantCulture));
             }
         }
     }
