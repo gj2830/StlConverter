@@ -1070,7 +1070,7 @@ public partial class MainWindow : Window
         }
         var dlg = new SaveFileDialog
         {
-            Filter = "DesignSpark Mechanical (*.rsdocx)|*.rsdocx",
+            Filter = T("DesignSpark Mechanical (*.rsdocx)|*.rsdocx|STEP, voor elk CAD-programma (*.step)|*.step", "DesignSpark Mechanical (*.rsdocx)|*.rsdocx|STEP, for any CAD program (*.step)|*.step"),
             FileName = Path.GetFileNameWithoutExtension(_path) + ".rsdocx",
             InitialDirectory = Path.GetDirectoryName(_path),
         };
@@ -1078,7 +1078,11 @@ public partial class MainWindow : Window
         if (await ResultBodies(T("Opslaan", "Saving")) is not var (bodies, _, note)) return;
         try
         {
-            RsDocxComposer.Compose([.. bodies, .. _extraBodies]).Save(dlg.FileName);
+            List<BrepBody> all = [.. bodies, .. _extraBodies];
+            if (dlg.FileName.EndsWith(".step", StringComparison.OrdinalIgnoreCase) || dlg.FileName.EndsWith(".stp", StringComparison.OrdinalIgnoreCase))
+                File.WriteAllText(dlg.FileName, RsDocx.Core.Step.StepWriter.Write(new RsDocx.Core.Step.StepModel(
+                    all.Select((b, i) => new RsDocx.Core.Step.StepBody(b, T($"Vaste vorm {i + 1}", $"Solid {i + 1}"))).ToList(), []), Path.GetFileName(dlg.FileName)));
+            else RsDocxComposer.Compose(all).Save(dlg.FileName);
             StatusText.Text += T($"\n💾 Opgeslagen: {Path.GetFileName(dlg.FileName)}{note}", $"\n💾 Saved: {Path.GetFileName(dlg.FileName)}{note}");
             ShowToast(T("💾 Opgeslagen", "💾 Saved"), Path.GetFileName(dlg.FileName) + note);
         }

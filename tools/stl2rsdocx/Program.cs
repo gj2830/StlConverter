@@ -2,7 +2,7 @@ using System.Globalization;
 using RsDocx.Core;
 using RsDocx.Core.Stl;
 
-// stl2rsdocx input.stl output.rsdocx [--merge-coplanar] [--scale 0.001] [--angle-tol deg] [--dist-tol mm] [--fit-um µm] [--join-um µm]
+// stl2rsdocx input.stl output.rsdocx|output.step [--merge-coplanar] [--scale 0.001] [--angle-tol deg] [--dist-tol mm] [--fit-um µm] [--join-um µm]
 
 CultureInfo.CurrentCulture = CultureInfo.InvariantCulture;
 var positional = new List<string>();
@@ -70,8 +70,11 @@ try
     var bodies = MeshConverter.ConvertToBrep(stl, opt, out var stats);
     Console.WriteLine(stats);
     foreach (var w in stats.Warnings) Console.WriteLine("warning: " + w);
-    var pkg = RsDocxComposer.Compose(bodies);
-    pkg.Save(positional[1]);
+    // (.step or .stp: STEP, for any CAD program; otherwise DesignSpark's .rsdocx)
+    if (positional[1].EndsWith(".step", StringComparison.OrdinalIgnoreCase) || positional[1].EndsWith(".stp", StringComparison.OrdinalIgnoreCase))
+        File.WriteAllText(positional[1], RsDocx.Core.Step.StepWriter.Write(new RsDocx.Core.Step.StepModel(
+            bodies.Select((b, i) => new RsDocx.Core.Step.StepBody(b, $"Solid {i + 1}")).ToList(), []), Path.GetFileName(positional[1])));
+    else RsDocxComposer.Compose(bodies).Save(positional[1]);
     Console.WriteLine($"written {positional[1]} ({new FileInfo(positional[1]).Length} bytes)");
     return 0;
 }
@@ -84,7 +87,7 @@ catch (Exception e) when (e is StlFormatException or MeshException or IOExceptio
 static double Num(string s) => double.Parse(s, NumberStyles.Float, CultureInfo.InvariantCulture);
 
 static void Usage() => Console.Error.WriteLine("""
-    usage: stl2rsdocx input.stl|input.3mf output.rsdocx [options]
+    usage: stl2rsdocx input.stl|input.3mf output.rsdocx|output.step [options]
       --merge-coplanar   merge coplanar adjacent triangles into one planar face
       --cylinders        also recognise cylinders (fillets, holes, bosses); implies --merge-coplanar
       --spheres          also recognise spheres; implies --merge-coplanar

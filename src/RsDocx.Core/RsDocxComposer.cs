@@ -75,16 +75,18 @@ public static class RsDocxComposer
             [new(1, 0, 0), new(-1, 0, 0), new(0, 1, 0), new(0, -1, 0), new(0, 0, 1), new(0, 0, -1)];
     }
 
-    public static RsDocxPackage Compose(IReadOnlyList<Brep.BrepBody> bodies, RsDocxPackage? template = null)
+    /// <param name="names">A name per body (null: DesignSpark's "Vaste vorm" or "Oppervlak").</param>
+    public static RsDocxPackage Compose(IReadOnlyList<Brep.BrepBody> bodies, RsDocxPackage? template = null, IReadOnlyList<string?>? names = null)
     {
         var pkg = template ?? DefaultTemplate();
 
         var alloc = new MonikerAllocator(0, 5000);
         var ids = new List<BodyIds>();
         var named = new List<(Brep.BrepBody, Brep.BrepNames)>();
-        foreach (var p in bodies)
+        for (int k = 0; k < bodies.Count; k++)
         {
-            var bi = alloc.ForBody(p.Faces.Count, p.Edges.Count, p.Sheet);
+            var p = bodies[k];
+            var bi = alloc.ForBody(p.Faces.Count, p.Edges.Count, p.Sheet, names != null && k < names.Count ? names[k] : null);
             ids.Add(bi);
             named.Add((p, new Brep.BrepNames { Body = bi.Body, Faces = bi.Faces, Edges = bi.Edges }));
         }

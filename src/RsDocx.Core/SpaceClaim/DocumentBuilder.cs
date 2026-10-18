@@ -5,7 +5,7 @@ namespace RsDocx.Core.SpaceClaim;
 
 /// <summary>Monikers for one body as they appear in document.xml and in the x_b name attributes; <see cref="Sheet"/>: faces
 /// without thickness (see <see cref="Brep.BrepBody.Sheet"/>).</summary>
-public sealed record BodyIds(string Body, string BodyUpdateState, IReadOnlyList<string> Faces, IReadOnlyList<string> Edges, string Caption, bool Sheet = false);
+public sealed record BodyIds(string Body, string BodyUpdateState, IReadOnlyList<string> Faces, IReadOnlyList<string> Edges, string Caption, bool Sheet = false, string? Name = null);
 
 /// <summary>Hands out monikers "&lt;prefix&gt;:&lt;n&gt;" from a counter.</summary>
 public sealed class MonikerAllocator(int prefix, int start)
@@ -13,11 +13,11 @@ public sealed class MonikerAllocator(int prefix, int start)
     public int Next { get; private set; } = start;
     public string Take() => $"{prefix}:{Next++}";
 
-    public BodyIds ForBody(int faceCount, int edgeCount, bool sheet = false) => new(
+    public BodyIds ForBody(int faceCount, int edgeCount, bool sheet = false, string? name = null) => new(
         Take(), Take(),
         Enumerable.Range(0, faceCount).Select(_ => Take()).ToList(),
         Enumerable.Range(0, edgeCount).Select(_ => Take()).ToList(),
-        Take(), sheet);
+        Take(), sheet, name);
 }
 
 /// <summary>
@@ -63,6 +63,8 @@ public static class DocumentBuilder
                 c.Element(Presentation + "subjectId")!.Value = b.Body;
                 // (faces without thickness: as DesignSpark named them in testdata/oppervlak.rsdocx)
                 if (b.Sheet) c.Element(Presentation + "name")!.Value = "Oppervlak";
+                // (a name of its own, shown in DesignSpark's structure tree)
+                if (!string.IsNullOrWhiteSpace(b.Name)) c.Element(Presentation + "name")!.Value = b.Name;
                 pres.Add(c);
             }
 
