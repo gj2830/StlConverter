@@ -28,11 +28,26 @@ public sealed record BrepBSpline(int Degree, IReadOnlyList<Vec3> ControlPoints, 
 public sealed record HelixForm(Vec3 AxisPoint, Vec3 AxisDir, Vec3 Point, bool RightHanded, double Turns0, double Turns1, double Pitch, double Tol);
 
 /// <summary>
+/// How Parasolid stores a NURBS surface besides its shape (fields of NURBS_SURF and SURFACE_DATA), kept from a file that
+/// was read so it is written back the same. DesignSpark's revolved spline (testdata/kubus_getrokken.rsdocx): periodic and
+/// closed in v, knot types 6 (u) and 5 (v), surface_form 8, ends "DDPPDDPP". <see cref="Ends"/>: the eight characters
+/// original_u_start, _u_end, _v_start, _v_end, then the same four extended.
+/// </summary>
+public sealed record NurbsFormat(bool UPeriodic, bool VPeriodic, bool UClosed, bool VClosed, byte UKnotType, byte VKnotType,
+    byte SurfaceForm, bool Rational, string Ends, byte SelfInt)
+{
+    /// <summary>As PushPullMe writes its own surfaces (testdata/helix.rsdocx): rational, knot types 1, surface_form 12.</summary>
+    public static readonly NurbsFormat Default = new(false, false, false, false, 1, 1, 12, true, "BBBBBBBB", 2);
+}
+
+/// <summary>
 /// A rational B-spline surface with clamped knots. <see cref="Points"/> row by row: for each u index the <see cref="NV"/>
 /// points along v (as SpaceClaim stores them: testdata/helix.rsdocx). The natural normal is dS/du x dS/dv.
+/// <see cref="Format"/>: how it was stored in the file it came from (null: <see cref="NurbsFormat.Default"/>).
 /// </summary>
 public sealed record BrepNurbsSurface(int UDegree, int VDegree, int NU, int NV, IReadOnlyList<Vec3> Points, IReadOnlyList<double> Weights,
-    IReadOnlyList<double> UKnots, IReadOnlyList<int> UMults, IReadOnlyList<double> VKnots, IReadOnlyList<int> VMults, HelixForm? Helix = null) : BrepSurface
+    IReadOnlyList<double> UKnots, IReadOnlyList<int> UMults, IReadOnlyList<double> VKnots, IReadOnlyList<int> VMults, HelixForm? Helix = null,
+    NurbsFormat? Format = null) : BrepSurface
 {
     private double[]? _u, _v;
     public double[] FullU => _u ??= BSpline.Expand(UKnots, UMults);
@@ -53,8 +68,16 @@ public sealed record BrepNurbsSurface(int UDegree, int VDegree, int NU, int NV, 
         return s * (1 / w);
     }
 
-    /// <summary>Distance from q to the surface: the nearest of a grid of samples, then Newton steps on (u, v).</summary>
+    /// <summary>Distance from q to the surface (see <see cref="Parameters"/>).</summary>
     public double Distance(Vec3 q)
+    {
+        var (u, v) = Parameters(q);
+        return (At(u, v) - q).Length;
+    }
+
+    /// <summary>The parameters of the point of the surface nearest to q: the nearest of a grid of samples, then Newton
+    /// steps on (u, v).</summary>
+    public (double U, double V) Parameters(Vec3 q)
     {
         double u0 = UKnots[0], u1 = UKnots[^1], v0 = VKnots[0], v1 = VKnots[^1];
         int nu = Math.Max(4, 4 * NU), nv = Math.Max(16, 8 * NV);
@@ -66,6 +89,22 @@ public sealed record BrepNurbsSurface(int UDegree, int VDegree, int NU, int NV, 
                 double d = (At(u, v) - q).Length;
                 if (d < bd) { bd = d; bu = u; bv = v; }
             }
+        var (nu1, nv1, _) = Newton(q, bu, bv);
+        return (At(nu1, nv1) - q).Length <= bd ? (nu1, nv1) : (bu, bv);
+    }
+
+    /// <summary>As <see cref="Parameters(Vec3)"/>, starting from parameters near the answer (the previous point along
+    /// an edge): Newton steps only; the grid only when they do not settle, or end farther off than <paramref name="tol"/>.</summary>
+    public (double U, double V) Parameters(Vec3 q, (double U, double V) near, double tol = 1e-7)
+    {
+        var (u, v, settled) = Newton(q, near.U, near.V);
+        return settled && (At(u, v) - q).Length <= tol ? (u, v) : Parameters(q);
+    }
+
+    /// <summary>Newton steps towards the nearest point from (bu, bv); whether they settled.</summary>
+    private (double U, double V, bool Settled) Newton(Vec3 q, double bu, double bv)
+    {
+        double u0 = UKnots[0], u1 = UKnots[^1], v0 = VKnots[0], v1 = VKnots[^1];
         double hu = (u1 - u0) * 1e-7, hv = (v1 - v0) * 1e-7;
         for (int it = 0; it < 30; it++)
         {
@@ -78,9 +117,9 @@ public sealed record BrepNurbsSurface(int UDegree, int VDegree, int NU, int NV, 
             if (Math.Abs(det) < 1e-300) break;
             double du = (b1 * a22 - b2 * a12) / det, dv = (a11 * b2 - a12 * b1) / det;
             bu = Math.Clamp(bu + du, u0, u1); bv = Math.Clamp(bv + dv, v0, v1);
-            if (Math.Abs(du) < (u1 - u0) * 1e-14 && Math.Abs(dv) < (v1 - v0) * 1e-14) break;
+            if (Math.Abs(du) < (u1 - u0) * 1e-12 && Math.Abs(dv) < (v1 - v0) * 1e-12) return (bu, bv, true);
         }
-        return Math.Min(bd, (At(bu, bv) - q).Length);
+        return (bu, bv, false);
     }
 }
 

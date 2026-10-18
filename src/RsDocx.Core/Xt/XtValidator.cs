@@ -107,9 +107,13 @@ public static class XtValidator
                         }
 
                         var pts = SampleEdge(curve, a, bpt, alongCurve, map: map);
-                        foreach (var p in pts)
+                        for (int k = 0; k < pts.Count; k++)
                         {
-                            if (CurveDistance(curve, p, map) > tol) { Err($"edge {edge.Index}: point not on its curve {curve.Index}"); break; }
+                            var p = pts[k];
+                            // (a B-curve's points between its ends are taken from the curve itself: only its ends, the
+                            // vertices, need checking against it; a long one would otherwise take seconds)
+                            bool onCurveAnyway = curve.NodeType == XtNodeTypes.BCurve && k > 0 && k + 1 < pts.Count;
+                            if (!onCurveAnyway && CurveDistance(curve, p, map) > tol) { Err($"edge {edge.Index}: point not on its curve {curve.Index}"); break; }
                             if (SurfaceDistance(surf, p, map) > tol) { Err($"face {face.Index}: edge {edge.Index} leaves surface {surf.Index}"); break; }
                         }
                         samples.AddRange(pts.Take(pts.Count - 1));

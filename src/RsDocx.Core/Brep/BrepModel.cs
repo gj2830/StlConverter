@@ -37,7 +37,12 @@ public readonly record struct BrepCoedge(int Edge, bool Forward);
 /// Face on a surface. Reversed = the face normal is opposite to the surface's natural normal (e.g. a hollow cylinder).
 /// Loops run counter-clockwise around the face normal (outer) or clockwise (holes).
 /// </summary>
-public sealed record BrepFace(BrepSurface Surface, bool Reversed, IReadOnlyList<IReadOnlyList<BrepCoedge>> Loops);
+public sealed record BrepFace(BrepSurface Surface, bool Reversed, IReadOnlyList<IReadOnlyList<BrepCoedge>> Loops)
+{
+    /// <summary>Loops that are a single point (indices into <see cref="BrepBody.Vertices"/>): where a closed free-form
+    /// face comes to a point, as DesignSpark's revolved spline in testdata/kubus_getrokken.rsdocx.</summary>
+    public IReadOnlyList<int> Points { get; init; } = [];
+}
 
 public sealed class BrepBody
 {

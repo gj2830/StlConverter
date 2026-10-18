@@ -83,17 +83,37 @@ public static class XtGeometry
         return (pts, w);
     }
 
-    /// <summary>A B_SURFACE node (with its NURBS_SURF children) as a surface; rational, vertices row by row (v fastest).</summary>
+    /// <summary>A B_SURFACE node (with its NURBS_SURF children) as a surface; vertices row by row (v fastest); a helix form
+    /// and how it is stored (<see cref="Brep.NurbsFormat"/>) kept.</summary>
     public static Brep.BrepNurbsSurface ReadBSurface(XtNode s, IReadOnlyDictionary<int, XtNode> map)
     {
         var n = map[s.Ptr("nurbs")];
         var v = map[n.Ptr("bspline_vertices")].Array("vertices").Select(x => (double)x).ToArray();
-        var (pts, w) = Vertices(v, (short)n["vertex_dim"], n.Byte("rational") != 0);
+        bool rational = n.Byte("rational") != 0;
+        var (pts, w) = Vertices(v, (short)n["vertex_dim"], rational);
         List<int> M(string f) => map[n.Ptr(f)].Array("mult").Select(x => (int)(short)x).ToList();
         List<double> K(string f) => map[n.Ptr(f)].Array("knots").Select(x => (double)x).ToList();
+        string ends = "BBBBBBBB"; byte selfInt = 2;
+        Brep.HelixForm? helix = null;
+        if (s.Ptr("data") is int di and not 0 && map.TryGetValue(di, out var data))
+        {
+            ends = string.Concat(new[] { "original_u_start", "original_u_end", "original_v_start", "original_v_end",
+                "extended_u_start", "extended_u_end", "extended_v_start", "extended_v_end" }.Select(f => (char)data.Byte(f)));
+            selfInt = data.Byte("self_int");
+            if (data.Byte("analytic_form_type") == 'H' && map.TryGetValue(data.Ptr("analytic_form"), out var h) && h.NodeType == XtNodeTypes.HelixSuForm)
+            {
+                var t = (double[])h["turns"];
+                helix = new Brep.HelixForm(V(h.Vec("axis_pt")), V(h.Vec("axis_dir")), default, h.Byte("hand") == '+', t[0], t[1], h.Double("pitch"), h.Double("tol"));
+            }
+        }
+        var format = new Brep.NurbsFormat(n.Byte("u_periodic") != 0, n.Byte("v_periodic") != 0, n.Byte("u_closed") != 0, n.Byte("v_closed") != 0,
+            n.Byte("u_knot_type"), n.Byte("v_knot_type"), n.Byte("surface_form"), rational, ends, selfInt);
         return new Brep.BrepNurbsSurface((short)n["u_degree"], (short)n["v_degree"], (int)n["n_u_vertices"], (int)n["n_v_vertices"], pts,
-            w ?? Enumerable.Repeat(1.0, pts.Count).ToList(), K("u_knots"), M("u_knot_mult"), K("v_knots"), M("v_knot_mult"));
+            w ?? Enumerable.Repeat(1.0, pts.Count).ToList(), K("u_knots"), M("u_knot_mult"), K("v_knots"), M("v_knot_mult"), helix,
+            format == Brep.NurbsFormat.Default ? null : format);
     }
+
+    private static Stl.Vec3 V(double[] a) => new(a[0], a[1], a[2]);
 
     /// <summary>Distance from p to the surface node, B_SURFACE included (needs the map); NaN for others.</summary>
     public static double SurfaceDistance(XtNode s, double[] p, IReadOnlyDictionary<int, XtNode> map) =>

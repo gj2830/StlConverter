@@ -141,6 +141,9 @@ public sealed class XtBrepBuilder
         int[] iLoop = Enumerable.Range(0, nl).Select(_ => a.Take()).ToArray();
         int[][] iFin = loops.Select(l => l.Coedges.Select(_ => a.Take()).ToArray()).ToArray();
         int[] iBare = bare.Select(_ => a.Take()).ToArray();
+        // loops that are one point (a fin without an edge), after the face's other loops
+        var points = body.Faces.SelectMany((f, fi) => f.Points.Select(v => (Face: fi, Vertex: v))).ToList();
+        int[] iPointLoop = points.Select(_ => a.Take()).ToArray(), iPointFin = points.Select(_ => a.Take()).ToArray();
         var shellOfFace = new int[nf];
         for (int k = 0; k < pieces.Count; k++) foreach (int fi in pieces[k]) shellOfFace[fi] = iShells[k];
 
@@ -230,6 +233,17 @@ public sealed class XtBrepBuilder
             fin["sense"] = (byte)(fwd ? '+' : '-');
             if (end >= 0) finsAtVx[end].Add(iBare[k]);
             finNodes[iBare[k]] = fin;
+        }
+        // (a loop that is one point, as DesignSpark writes it: the fin runs to itself, no edge, no other fin, sense '?')
+        for (int k = 0; k < points.Count; k++)
+        {
+            var fin = New(a, XtNodeTypes.Fin, iPointFin[k]);
+            fin["loop"] = iPointLoop[k];
+            fin["forward"] = iPointFin[k]; fin["backward"] = iPointFin[k];
+            fin["vertex"] = iVert[points[k].Vertex];
+            fin["sense"] = (byte)'?';
+            finsAtVx[points[k].Vertex].Add(iPointFin[k]);
+            finNodes[iPointFin[k]] = fin;
         }
         for (int v = 0; v < nv; v++)
             for (int k = 0; k + 1 < finsAtVx[v].Count; k++)
@@ -364,12 +378,14 @@ public sealed class XtBrepBuilder
         {
             var face = body.Faces[fi];
             var faceLoops = loopsOfFace[fi];
+            // (all its loop nodes in order: the loops of edges, then those of single points)
+            var allLoops = faceLoops.Select(li => iLoop[li]).Concat(Enumerable.Range(0, points.Count).Where(k => points[k].Face == fi).Select(k => iPointLoop[k])).ToList();
             var fc = New(a, XtNodeTypes.Face, iFace[fi]);
             fc["node_id"] = a.Id();
             fc["tolerance"] = XtNodeTypes.NullDouble;
             fc["next"] = fi + 1 < nf ? iFace[fi + 1] : 0;
             fc["previous"] = fi > 0 ? iFace[fi - 1] : 0;
-            fc["loop"] = faceLoops.Count > 0 ? iLoop[faceLoops[0]] : 0; // a full sphere has no loops
+            fc["loop"] = allLoops.Count > 0 ? allLoops[0] : 0; // a full sphere has no loops
             fc["shell"] = iShIn;
             fc["next_front"] = fi + 1 < nf ? iFace[fi + 1] : 0;
             fc["previous_front"] = fi > 0 ? iFace[fi - 1] : 0;
@@ -394,7 +410,17 @@ public sealed class XtBrepBuilder
                 lp["node_id"] = a.Id();
                 lp["fin"] = iFin[li][0];
                 lp["face"] = iFace[fi];
-                lp["next"] = k + 1 < faceLoops.Count ? iLoop[faceLoops[k + 1]] : 0;
+                lp["next"] = k + 1 < allLoops.Count ? allLoops[k + 1] : 0;
+            }
+            for (int k = 0; k < points.Count; k++)
+            {
+                if (points[k].Face != fi) continue;
+                int at = allLoops.IndexOf(iPointLoop[k]);
+                var lp = New(a, XtNodeTypes.Loop, iPointLoop[k]);
+                lp["node_id"] = a.Id();
+                lp["fin"] = iPointFin[k];
+                lp["face"] = iFace[fi];
+                lp["next"] = at + 1 < allLoops.Count ? allLoops[at + 1] : 0;
             }
             XtNode s;
             switch (face.Surface)
@@ -445,23 +471,26 @@ public sealed class XtBrepBuilder
                     s = New(a, XtNodeTypes.BSurface, iSurf[fi]);
                     int iN = a.Take(), iD = a.Take(), iV = a.Take(), iUM = a.Take(), iVM = a.Take(), iUK = a.Take(), iVK = a.Take();
                     s["nurbs"] = iN; s["data"] = iD;
+                    // (a surface read from a file: stored as it was there, NurbsFormat; testdata/kubus_getrokken.rsdocx)
+                    var fm = ns.Format ?? NurbsFormat.Default;
+                    bool rational = fm.Rational || ns.Weights.Any(x => x != 1);
                     var nurbs = New(a, XtNodeTypes.NurbsSurf, iN);
-                    nurbs["u_periodic"] = (byte)0; nurbs["v_periodic"] = (byte)0;
+                    nurbs["u_periodic"] = (byte)(fm.UPeriodic ? 1 : 0); nurbs["v_periodic"] = (byte)(fm.VPeriodic ? 1 : 0);
                     nurbs["u_degree"] = (short)ns.UDegree; nurbs["v_degree"] = (short)ns.VDegree;
                     nurbs["n_u_vertices"] = ns.NU; nurbs["n_v_vertices"] = ns.NV;
-                    nurbs["u_knot_type"] = (byte)1; nurbs["v_knot_type"] = (byte)1;
+                    nurbs["u_knot_type"] = fm.UKnotType; nurbs["v_knot_type"] = fm.VKnotType;
                     nurbs["n_u_knots"] = ns.UKnots.Count; nurbs["n_v_knots"] = ns.VKnots.Count;
-                    nurbs["rational"] = (byte)1; nurbs["u_closed"] = (byte)0; nurbs["v_closed"] = (byte)0;
-                    nurbs["surface_form"] = (byte)12; nurbs["vertex_dim"] = (short)4;
+                    nurbs["rational"] = (byte)(rational ? 1 : 0); nurbs["u_closed"] = (byte)(fm.UClosed ? 1 : 0); nurbs["v_closed"] = (byte)(fm.VClosed ? 1 : 0);
+                    nurbs["surface_form"] = fm.SurfaceForm; nurbs["vertex_dim"] = (short)(rational ? 4 : 3);
                     nurbs["bspline_vertices"] = iV; nurbs["u_knot_mult"] = iUM; nurbs["v_knot_mult"] = iVM; nurbs["u_knots"] = iUK; nurbs["v_knots"] = iVK;
                     var data = New(a, XtNodeTypes.SurfaceData, iD);
                     double[] ub = [ns.UKnots[0], ns.UKnots[^1]], vb = [ns.VKnots[0], ns.VKnots[^1]];
                     data["original_uint"] = ub; data["original_vint"] = vb;
                     data["extended_uint"] = (double[])ub.Clone(); data["extended_vint"] = (double[])vb.Clone();
-                    data["self_int"] = (byte)2;
-                    foreach (var f in new[] { "original_u_start", "original_u_end", "original_v_start", "original_v_end",
-                                              "extended_u_start", "extended_u_end", "extended_v_start", "extended_v_end" })
-                        data[f] = (byte)'B';
+                    data["self_int"] = fm.SelfInt;
+                    string[] endFields = ["original_u_start", "original_u_end", "original_v_start", "original_v_end",
+                                          "extended_u_start", "extended_u_end", "extended_v_start", "extended_v_end"];
+                    for (int k = 0; k < endFields.Length; k++) data[endFields[k]] = (byte)fm.Ends[k];
                     data["analytic_form_type"] = (byte)(ns.Helix != null ? 'H' : '?');
                     data["swept_form_type"] = (byte)'?'; data["spun_form_type"] = (byte)'?'; data["blend_form_type"] = (byte)'?';
                     if (ns.Helix is { } hx)
@@ -474,8 +503,8 @@ public sealed class XtBrepBuilder
                         h["turns"] = new[] { hx.Turns0, hx.Turns1 };
                         h["pitch"] = hx.Pitch; h["gap"] = XtNodeTypes.NullDouble; h["tol"] = hx.Tol;
                     }
-                    var verts = New(a, XtNodeTypes.BsplineVertices, iV, ns.Points.Count * 4);
-                    verts["vertices"] = Homogeneous(ns.Points, ns.Weights);
+                    var verts = New(a, XtNodeTypes.BsplineVertices, iV, ns.Points.Count * (rational ? 4 : 3));
+                    verts["vertices"] = rational ? Homogeneous(ns.Points, ns.Weights) : ns.Points.SelectMany(q => new object[] { q.X, q.Y, q.Z }).ToArray();
                     var um = New(a, XtNodeTypes.KnotMult, iUM, ns.UKnots.Count); um["mult"] = ns.UMults.Select(m => (object)(short)m).ToArray();
                     var vm = New(a, XtNodeTypes.KnotMult, iVM, ns.VKnots.Count); vm["mult"] = ns.VMults.Select(m => (object)(short)m).ToArray();
                     var uk = New(a, XtNodeTypes.KnotSet, iUK, ns.UKnots.Count); uk["knots"] = ns.UKnots.Select(k => (object)k).ToArray();

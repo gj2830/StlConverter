@@ -21,7 +21,7 @@ public class SheetTests
 
     /// <summary>The faces of the reference body: rectangle x -130..-71, y 11..41 and discs r 53.6 at (62, -96) and
     /// r 15.5 at (-172, 49) mm, all at z 50 mm facing up.</summary>
-    private static BrepBody LikeReference()
+    internal static BrepBody LikeReference()
     {
         var plane = new BrepPlane(new Vec3(0.015, -0.017, 0.05), Up, X);
         Vec3 P(double x, double y) => new(x * Mm, y * Mm, 0.05);
@@ -37,18 +37,18 @@ public class SheetTests
         };
     }
 
-    private static BrepNames Names(BrepBody b, string body = "0:1") => new()
+    internal static BrepNames Names(BrepBody b, string body = "0:1") => new()
     {
         Body = body, Faces = b.Faces.Select((_, i) => $"0:{100 + i}").ToList(), Edges = b.Edges.Select((_, i) => $"0:{200 + i}").ToList(),
     };
 
     /// <summary>How many nodes of each kind of topology and geometry a body holds (planes left out: DesignSpark lets the
-    /// faces of one plane share it).</summary>
-    private static Dictionary<int, int> Mix(XtFile file, int bodyIndex)
+    /// faces of one plane share it); <paramref name="more"/>: other kinds of node to count too.</summary>
+    internal static Dictionary<int, int> Mix(XtFile file, int bodyIndex, params int[] more)
     {
         var map = file.ByIndex();
         int[] kinds = [XtNodeTypes.Region, XtNodeTypes.Shell, XtNodeTypes.Face, XtNodeTypes.Loop, XtNodeTypes.Fin, XtNodeTypes.Edge,
-            XtNodeTypes.Vertex, XtNodeTypes.Point, XtNodeTypes.Line, XtNodeTypes.Circle];
+            XtNodeTypes.Vertex, XtNodeTypes.Point, XtNodeTypes.Line, XtNodeTypes.Circle, .. more];
         var seen = new HashSet<int>(); var todo = new Stack<int>([bodyIndex]);
         while (todo.Count > 0)
         {
