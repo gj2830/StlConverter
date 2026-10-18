@@ -4,7 +4,7 @@
 
 *[Nederlands hieronder](#nederlands)*
 
-Reads and writes DesignSpark Mechanical files (`.rsdocx`, with Parasolid geometry) and converts STL and 3MF meshes into
+Reads and writes STEP (AP214) and DesignSpark Mechanical files (`.rsdocx`, with Parasolid geometry) and converts STL and 3MF meshes into
 exact geometry: planes, cylinders and cones are recognised and written as true surfaces. It is the file engine of
 [PushPullMe](https://github.com/gj2830/PushPullMe).
 
@@ -15,7 +15,7 @@ exact geometry: planes, cylinders and cones are recognised and written as true s
 
 ## Contents
 
-- `src/RsDocx.Core`: reading and writing `.rsdocx` and converting triangle meshes.
+- `src/RsDocx.Core`: reading and writing `.rsdocx` and STEP, and converting triangle meshes.
 - `src/Geometry3Sharp`: [geometry3Sharp](https://github.com/gradientspace/geometry3Sharp) (Boost licence, see the
   LICENSE in that folder), used to repair meshes.
 - `tools/StlConverter`: a window to convert files (English and Dutch, 🌐 button); `tools/stl2rsdocx`, `rsdump`,
@@ -40,7 +40,7 @@ The tests use the models in `testdata/`.
 
 ## Nederlands
 
-Leest en schrijft DesignSpark Mechanical-bestanden (`.rsdocx`, met Parasolid-geometrie) en zet STL- en 3MF-modellen om
+Leest en schrijft STEP (AP214) en DesignSpark Mechanical-bestanden (`.rsdocx`, met Parasolid-geometrie) en zet STL- en 3MF-modellen om
 naar exacte vormen: platte vlakken, cilinders en kegels worden herkend en als echte vlakken weggeschreven. Vaste vormen
 (ook met bollen, ringen en vrije vormen, kleuren per vlak, meerdere delen) en losse vlakken zonder dikte ("Oppervlak"
 in DesignSpark) gaan heen en terug; elk bestand wordt eerst gecontroleerd zodat DesignSpark het opent.
@@ -51,4 +51,10 @@ uitpakken en `StlConverter.exe` starten, of `stl2rsdocx.exe` op de opdrachtregel
 
 ## License / Licentie
 
-MIT, see [LICENSE](LICENSE); `src/Geometry3Sharp` has its own Boost licence.
+[PolyForm Noncommercial 1.0.0](LICENSE): free to use, change and share for any noncommercial purpose, and
+contributions are welcome; using it in a commercial product is not allowed. Earlier versions were released under MIT.
+`src/Geometry3Sharp` keeps its own Boost licence.
+
+Nederlands: vrij te gebruiken, aan te passen en te delen voor niet-commerciële doelen, en meewerken is welkom; gebruik in
+een commercieel product mag niet. Eerdere versies zijn onder MIT uitgebracht. `src/Geometry3Sharp` houdt zijn eigen
+Boost-licentie.
