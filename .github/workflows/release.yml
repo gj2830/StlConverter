@@ -1,7 +1,7 @@
 name: Release
 
 # a tag such as v0.2 makes a release with the converter ready to run on Windows, Linux and macOS (no .NET needed): the
-# window (StlConverter, Avalonia) and the command line tool (stl2rsdocx)
+# window (StlConverter) and the command line tool (stl2rsdocx)
 on:
   push:
     tags: ['v*']
@@ -29,7 +29,7 @@ jobs:
       - name: Publish
         shell: bash
         run: |
-          dotnet publish tools/StlConverter.Desktop -c Release -r ${{ matrix.rid }} --self-contained true -o publish
+          dotnet publish tools/StlConverter -c Release -r ${{ matrix.rid }} --self-contained true -o publish
           dotnet publish tools/stl2rsdocx -c Release -r ${{ matrix.rid }} --self-contained true -o publish
           rm -f publish/*.pdb
       - name: Package (Windows)

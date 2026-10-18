@@ -1,8 +1,8 @@
 namespace StlConverter;
 
 /// <summary>
-/// The window's texts as written in Dutch, with their English: the WPF window and the Avalonia window look them up here
-/// when they open and when the language is switched.
+/// The window's texts as written in Dutch, with their English: the window looks them up here when it opens and when the
+/// language is switched.
 /// </summary>
 public static class Texts
 {

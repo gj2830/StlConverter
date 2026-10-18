@@ -19,7 +19,7 @@ using Point = Avalonia.Point;
 using Path = System.IO.Path;
 using Vector = Avalonia.Vector;
 
-namespace StlConverter.Desktop;
+namespace StlConverter;
 
 /// <summary>
 /// Everything shown is drawn from the triangles as they are in the file ("source triangles"), so selections work before

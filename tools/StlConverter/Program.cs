@@ -1,6 +1,6 @@
 using Avalonia;
 
-namespace StlConverter.Desktop;
+namespace StlConverter;
 
 internal static class Program
 {

@@ -1,6 +1,6 @@
 using RsDocx.Core.Stl;
 
-namespace StlConverter.Desktop;
+namespace StlConverter;
 
 // The few 3D kinds the WPF window was written with (a point, a direction, a box), here without WPF, so the window's
 // code reads as it did.

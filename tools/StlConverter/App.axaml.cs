@@ -2,7 +2,7 @@ using Avalonia;
 using Avalonia.Controls.ApplicationLifetimes;
 using Avalonia.Markup.Xaml;
 
-namespace StlConverter.Desktop;
+namespace StlConverter;
 
 public partial class App : Application
 {

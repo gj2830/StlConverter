@@ -1,7 +1,7 @@
 <Window xmlns="https://github.com/avaloniaui"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        xmlns:local="clr-namespace:StlConverter.Desktop"
-        x:Class="StlConverter.Desktop.ConverterWindow"
+        xmlns:local="clr-namespace:StlConverter"
+        x:Class="StlConverter.ConverterWindow"
         Title="Mesh ➜ Solid" Icon="/Assets/logo.png" Width="1480" Height="900" Background="{StaticResource Page}"
         FontSize="12" DragDrop.AllowDrop="True">
   <Window.Styles>

@@ -7,7 +7,7 @@ using Avalonia.OpenGL.Controls;
 using Avalonia.Rendering;
 using Silk.NET.OpenGL;
 
-namespace StlConverter.Desktop;
+namespace StlConverter;
 
 /// <summary>Triangles in one colour (each three positions one triangle, in the file's units); with, for picking, the
 /// source triangle of each (null: not to be picked).</summary>

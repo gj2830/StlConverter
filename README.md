@@ -18,8 +18,8 @@ exact geometry: planes, cylinders and cones are recognised and written as true s
 - `src/RsDocx.Core`: reading and writing `.rsdocx` and STEP, and converting triangle meshes.
 - `src/Geometry3Sharp`: [geometry3Sharp](https://github.com/gradientspace/geometry3Sharp) (Boost licence, see the
   LICENSE in that folder), used to repair meshes.
-- `tools/StlConverter.Desktop`: a window to convert files (English and Dutch, 🌐 button), for Windows, Linux and macOS
-  (Avalonia, OpenGL); `tools/StlConverter` is the same window in WPF (Windows only), kept for the WPF PushPullMe.
+- `tools/StlConverter`: a window to convert files (English and Dutch, 🌐 button), for Windows, Linux and macOS
+  (Avalonia, OpenGL).
 - `tools/stl2rsdocx`, `rsdump`, `rsgen`: command-line helpers.
 
 ## Download
@@ -35,10 +35,10 @@ command line).
 
 ## Build and test
 
-You need the .NET 10 SDK, on Windows, Linux or macOS (the WPF window builds on Windows only).
+You need the .NET 10 SDK, on Windows, Linux or macOS.
 
 ```
-dotnet run --project tools/StlConverter.Desktop -c Release
+dotnet run --project tools/StlConverter -c Release
 dotnet test tests/RsDocx.Tests
 ```
 

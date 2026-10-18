@@ -9,7 +9,6 @@
   <Folder Name="/tools/">
     <Project Path="tools/rsdump/rsdump.csproj" />
     <Project Path="tools/rsgen/rsgen.csproj" />
-    <Project Path="tools/StlConverter.Desktop/StlConverter.Desktop.csproj" />
     <Project Path="tools/StlConverter/StlConverter.csproj" />
     <Project Path="tools/stl2rsdocx/stl2rsdocx.csproj" />
   </Folder>
