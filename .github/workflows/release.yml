@@ -1,7 +1,7 @@
 name: Release
 
-# a tag such as v0.1 makes a release with the converter ready to run (Windows, no .NET needed): the window
-# (StlConverter.exe) and the command line tool (stl2rsdocx.exe)
+# a tag such as v0.2 makes a release with the converter ready to run on Windows, Linux and macOS (no .NET needed): the
+# window (StlConverter, Avalonia) and the command line tool (stl2rsdocx)
 on:
   push:
     tags: ['v*']
@@ -10,21 +10,82 @@ permissions:
   contents: write
 
 jobs:
-  release:
-    runs-on: windows-latest
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: windows-latest, rid: win-x64 }
+          - { os: ubuntu-latest, rid: linux-x64 }
+          - { os: macos-latest, rid: osx-arm64 }
+          - { os: macos-latest, rid: osx-x64 }
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: '10.0.x'
       - run: dotnet test tests/RsDocx.Tests -c Release
-      - run: dotnet publish tools/StlConverter -c Release -r win-x64 --self-contained true -o publish
-      - run: dotnet publish tools/stl2rsdocx -c Release -r win-x64 --self-contained true -o publish
-      - name: Zip
+      - name: Publish
+        shell: bash
+        run: |
+          dotnet publish tools/StlConverter.Desktop -c Release -r ${{ matrix.rid }} --self-contained true -o publish
+          dotnet publish tools/stl2rsdocx -c Release -r ${{ matrix.rid }} --self-contained true -o publish
+          rm -f publish/*.pdb
+      - name: Package (Windows)
+        if: runner.os == 'Windows'
         shell: pwsh
-        run: Compress-Archive -Path publish\* -DestinationPath StlConverter-${{ github.ref_name }}-win-x64.zip
+        run: Compress-Archive -Path publish\* -DestinationPath StlConverter-${{ github.ref_name }}-${{ matrix.rid }}.zip
+      - name: Package (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          mv publish StlConverter
+          tar -czf StlConverter-${{ github.ref_name }}-${{ matrix.rid }}.tar.gz StlConverter
+      - name: Package (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          app="Mesh to Solid.app"
+          mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources"
+          cp -R publish/. "$app/Contents/MacOS/"
+          mkdir icon.iconset
+          for s in 16 32 128 256 512; do
+            sips -z $s $s tools/StlConverter/logo.png --out icon.iconset/icon_${s}x${s}.png > /dev/null
+            sips -z $((s*2)) $((s*2)) tools/StlConverter/logo.png --out icon.iconset/icon_${s}x${s}@2x.png > /dev/null
+          done
+          iconutil -c icns icon.iconset -o "$app/Contents/Resources/StlConverter.icns"
+          cat > "$app/Contents/Info.plist" <<EOF
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+            <key>CFBundleName</key><string>Mesh to Solid</string>
+            <key>CFBundleDisplayName</key><string>Mesh ➜ Solid</string>
+            <key>CFBundleIdentifier</key><string>io.github.gj2830.stlconverter</string>
+            <key>CFBundleVersion</key><string>${GITHUB_REF_NAME#v}</string>
+            <key>CFBundleShortVersionString</key><string>${GITHUB_REF_NAME#v}</string>
+            <key>CFBundleExecutable</key><string>StlConverter</string>
+            <key>CFBundleIconFile</key><string>StlConverter</string>
+            <key>CFBundlePackageType</key><string>APPL</string>
+            <key>NSHighResolutionCapable</key><true/>
+          </dict>
+          </plist>
+          EOF
+          # (not signed by Apple: signed for this machine only, so it starts after "Open" in its menu)
+          codesign --force --deep --sign - "$app"
+          ditto -c -k --keepParent "$app" StlConverter-${{ github.ref_name }}-${{ matrix.rid }}.zip
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.rid }}
+          path: StlConverter-${{ github.ref_name }}-${{ matrix.rid }}.*
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          merge-multiple: true
       - name: Release
-        shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release create ${{ github.ref_name }} StlConverter-${{ github.ref_name }}-win-x64.zip --title "StlConverter ${{ github.ref_name }}" --generate-notes
+        run: gh release create ${{ github.ref_name }} StlConverter-* --repo ${{ github.repository }} --title "StlConverter ${{ github.ref_name }}" --generate-notes

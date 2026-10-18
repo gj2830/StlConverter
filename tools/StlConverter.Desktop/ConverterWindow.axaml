@@ -5,7 +5,7 @@
         Title="Mesh ➜ Solid" Icon="/Assets/logo.png" Width="1480" Height="900" Background="{StaticResource Page}"
         FontSize="12" DragDrop.AllowDrop="True">
   <Window.Styles>
-    <StyleInclude Source="avares://StlConverter.Desktop/Theme.axaml"/>
+    <StyleInclude Source="avares://StlConverter/Theme.axaml"/>
   </Window.Styles>
   <Grid Margin="16" ColumnDefinitions="350,*">
 

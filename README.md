@@ -18,21 +18,27 @@ exact geometry: planes, cylinders and cones are recognised and written as true s
 - `src/RsDocx.Core`: reading and writing `.rsdocx` and STEP, and converting triangle meshes.
 - `src/Geometry3Sharp`: [geometry3Sharp](https://github.com/gradientspace/geometry3Sharp) (Boost licence, see the
   LICENSE in that folder), used to repair meshes.
-- `tools/StlConverter`: a window to convert files (English and Dutch, 🌐 button); `tools/stl2rsdocx`, `rsdump`,
-  `rsgen`: command-line helpers.
+- `tools/StlConverter.Desktop`: a window to convert files (English and Dutch, 🌐 button), for Windows, Linux and macOS
+  (Avalonia, OpenGL); `tools/StlConverter` is the same window in WPF (Windows only), kept for the WPF PushPullMe.
+- `tools/stl2rsdocx`, `rsdump`, `rsgen`: command-line helpers.
 
 ## Download
 
-[Releases](https://github.com/gj2830/StlConverter/releases) has a zip for Windows (64-bit). Unpack it and start
-`StlConverter.exe` for the window, or run `stl2rsdocx.exe model.stl model.rsdocx --curved` on the command line; .NET
-does not need to be installed separately.
+[Releases](https://github.com/gj2830/StlConverter/releases) has a ready-to-run package per system; .NET does not need
+to be installed separately. Each has the window and `stl2rsdocx` (`stl2rsdocx model.stl model.rsdocx --curved` on the
+command line).
+
+- **Windows** (64-bit): unpack the `win-x64` zip and start `StlConverter.exe`.
+- **Linux** (64-bit): unpack the `linux-x64` tar.gz and start `StlConverter/StlConverter` (it needs OpenGL).
+- **macOS**: unpack the zip (`osx-arm64` for Apple silicon, `osx-x64` for Intel) and move `Mesh to Solid.app` to your
+  Applications. It is not signed by Apple: the first time, right-click it and choose **Open**.
 
 ## Build and test
 
-You need Windows (for the window) and the .NET 10 SDK.
+You need the .NET 10 SDK, on Windows, Linux or macOS (the WPF window builds on Windows only).
 
 ```
-dotnet build StlConverter.slnx -c Release
+dotnet run --project tools/StlConverter.Desktop -c Release
 dotnet test tests/RsDocx.Tests
 ```
 
@@ -45,9 +51,10 @@ naar exacte vormen: platte vlakken, cilinders en kegels worden herkend en als ec
 (ook met bollen, ringen en vrije vormen, kleuren per vlak, meerdere delen) en losse vlakken zonder dikte ("Oppervlak"
 in DesignSpark) gaan heen en terug; elk bestand wordt eerst gecontroleerd zodat DesignSpark het opent.
 
-**Downloaden:** onder [Releases](https://github.com/gj2830/StlConverter/releases) staat een zip voor Windows (64-bit);
-uitpakken en `StlConverter.exe` starten, of `stl2rsdocx.exe` op de opdrachtregel. **Bouwen en testen:** Windows en de
-.NET 10 SDK, zie hierboven.
+**Downloaden:** onder [Releases](https://github.com/gj2830/StlConverter/releases) staat een pakket per systeem: voor
+Windows een zip (`StlConverter.exe` starten), voor Linux een tar.gz (`StlConverter/StlConverter`), voor macOS een zip
+met `Mesh to Solid.app` (niet door Apple ondertekend: de eerste keer rechtsklikken en **Open** kiezen); `stl2rsdocx`
+zit er steeds bij voor de opdrachtregel. **Bouwen en testen:** de .NET 10 SDK op Windows, Linux of macOS, zie hierboven.
 
 ## License / Licentie
 

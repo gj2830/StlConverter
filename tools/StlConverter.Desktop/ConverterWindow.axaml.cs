@@ -976,7 +976,7 @@ public partial class ConverterWindow : Window
         var ok = new Button { Classes = { "pill", "primary" }, Content = "OK", HorizontalAlignment = HorizontalAlignment.Right };
         ok.Click += (_, _) => dlg.Close();
         dlg.Content = new StackPanel { Margin = new Thickness(20), Spacing = 16, Children = { new TextBlock { Text = text, TextWrapping = TextWrapping.Wrap }, ok } };
-        dlg.Styles.Add(new Avalonia.Markup.Xaml.Styling.StyleInclude(new Uri("avares://StlConverter.Desktop/")) { Source = new Uri("avares://StlConverter.Desktop/Theme.axaml") });
+        dlg.Styles.Add(new Avalonia.Markup.Xaml.Styling.StyleInclude(new Uri("avares://StlConverter/")) { Source = new Uri("avares://StlConverter/Theme.axaml") });
         await dlg.ShowDialog(this);
     }
 
