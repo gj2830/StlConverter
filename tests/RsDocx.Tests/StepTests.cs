@@ -73,8 +73,17 @@ public class StepTests
         var arc = new BrepCircle(new Vec3(0, 0, 0), new Vec3(0, 0, 1), new Vec3(1, 0, 0), 10 * Mm);
         var model = new StepModel([new StepBody(block, "Blok 'a'", colours), new StepBody(sheet, "Oppervlak é")],
             [new StepCurve(new Vec3(0, 0, 0), new Vec3(0.05, 0, 0)), new StepCurve(new Vec3(10 * Mm, 0, 0), new Vec3(0, 10 * Mm, 0), arc)]);
-        var back = StepReader.Parse(StepWriter.Write(model));
+        string text = StepWriter.Write(model, "proef.step");
+        // an assembly named after the file, each body a part in it named after the body (what FreeCAD shows)
+        Assert.Contains("PRODUCT('proef','proef'", text);
+        Assert.Contains("PRODUCT('Blok ''a''','Blok ''a'''", text);
+        Assert.Equal(2, text.Split("NEXT_ASSEMBLY_USAGE_OCCURRENCE(").Length - 1);
+        var back = StepReader.Parse(text);
         Assert.Equal(["Blok 'a'", "Oppervlak é"], back.Bodies.Select(b => b.Name));
+        // each once, where it stood
+        for (int v = 0; v < block.Vertices.Count; v++) Assert.True((block.Vertices[v] - back.Bodies[0].Body.Vertices[v]).Length < 1e-12);
+        // written again: the same
+        Assert.Equal(text, StepWriter.Write(back, "proef.step", ParseTime(text)));
         Assert.Equal(colours, back.Bodies[0].FaceColors);
         Assert.Null(back.Bodies[1].FaceColors);
         Assert.Equal(2, back.Curves.Count);
@@ -84,6 +93,33 @@ public class StepTests
         Assert.Equal(10 * Mm, a.Radius, 12);
         Assert.True(a.Normal.Dot(new Vec3(0, 0, 1)) > 0.999);
         Assert.True((back.Curves[1].End - new Vec3(0, 10 * Mm, 0)).Length < 1e-12);
+    }
+
+    [Fact]
+    public void Groups_go_through_STEP_as_assemblies()
+    {
+        BrepBody Block(double x) => BrepShapes.FromPolyhedron(Polyhedron.Box(x * Mm, 0, 0, (x + 10) * Mm, 10 * Mm, 10 * Mm));
+        // "Paar" (two blocks) inside "Alles" with a third block; a fourth block on its own
+        var model = new StepModel(
+            [new StepBody(Block(0), "Links", Group: 1), new StepBody(Block(20), "Rechts", Group: 1), new StepBody(Block(40), "Derde", Group: 0), new StepBody(Block(60), "Los")],
+            [], [new StepGroup("Alles"), new StepGroup("Paar", 0)]);
+        string text = StepWriter.Write(model, "proef.step");
+        Assert.Contains("PRODUCT('Alles','Alles'", text);
+        Assert.Contains("PRODUCT('Paar','Paar'", text);
+        Assert.Equal(6, text.Split("NEXT_ASSEMBLY_USAGE_OCCURRENCE(").Length - 1);
+        var back = StepReader.Parse(text);
+        Assert.Equal(["Alles", "Paar"], back.Groups.Select(g => g.Name));
+        Assert.Equal([null, (int?)0], back.Groups.Select(g => g.Parent));
+        var byName = back.Bodies.ToDictionary(b => b.Name);
+        Assert.Equal(4, byName.Count);
+        Assert.Equal(1, byName["Links"].Group);
+        Assert.Equal(1, byName["Rechts"].Group);
+        Assert.Equal(0, byName["Derde"].Group);
+        Assert.Null(byName["Los"].Group);
+        // each where it stood
+        Assert.True((byName["Rechts"].Body.Vertices[0] - model.Bodies[1].Body.Vertices[0]).Length < 1e-12);
+        // FreeCAD's file: parts in one product, no groups
+        Assert.Empty(StepReader.Read(KubusXtTests.TestData("freecad_proef.step")).Groups);
     }
 
     [Fact]

@@ -22,43 +22,98 @@ public static class StepWriter
     {
         var w = new Writer();
         var ctx = w.Context();
-        var origin = w.Axis2(new Vec3(0, 0, 0), new Vec3(0, 0, 1), new Vec3(1, 0, 0));
-        var solids = new List<int>(); var sheets = new List<int>(); var styled = new List<int>();
+        var styled = new List<int>();
+        // each body its own shape, an origin and its solid (or its faces without thickness)
+        var shapes = new List<int>(); var origins = new List<int>();
         foreach (var b in model.Bodies)
         {
             var faces = w.Body(b.Body);
+            int item;
             if (b.Body.Sheet)
             {
                 var shells = Pieces(b.Body).Select(p => w.Add($"OPEN_SHELL('',({Refs(p.Select(f => faces[f]))}))")).ToList();
-                sheets.Add(w.Add($"SHELL_BASED_SURFACE_MODEL({Text(b.Name)},({Refs(shells)}))"));
+                item = w.Add($"SHELL_BASED_SURFACE_MODEL({Text(b.Name)},({Refs(shells)}))");
             }
-            else solids.Add(w.Add($"MANIFOLD_SOLID_BREP({Text(b.Name)},{Ref(w.Add($"CLOSED_SHELL('',({Refs(faces)}))"))})"));
+            else item = w.Add($"MANIFOLD_SOLID_BREP({Text(b.Name)},{Ref(w.Add($"CLOSED_SHELL('',({Refs(faces)}))"))})");
             foreach (var (f, argb) in b.FaceColors ?? new Dictionary<int, uint>())
                 if (f < faces.Count) styled.Add(w.Add($"STYLED_ITEM('color',({Ref(w.Style(argb))}),{Ref(faces[f])})"));
+            int origin = w.Axis2(new Vec3(0, 0, 0), new Vec3(0, 0, 1), new Vec3(1, 0, 0));
+            origins.Add(origin);
+            shapes.Add(w.Add($"{(b.Body.Sheet ? "MANIFOLD_SURFACE_SHAPE_REPRESENTATION" : "ADVANCED_BREP_SHAPE_REPRESENTATION")}('',({Ref(origin)},{Ref(item)}),{Ref(ctx)})"));
         }
         var curves = model.Curves.Select(w.Trimmed).ToList();
 
-        // the representations: of the solids, the faces without thickness and the loose lines; the first one found is
-        // the product's shape, the others are tied to it
-        var reps = new List<int>();
-        if (solids.Count > 0) reps.Add(w.Add($"ADVANCED_BREP_SHAPE_REPRESENTATION('',({Refs(solids.Prepend(origin))}),{Ref(ctx)})"));
-        if (sheets.Count > 0) reps.Add(w.Add($"MANIFOLD_SURFACE_SHAPE_REPRESENTATION('',({Refs(sheets.Prepend(origin))}),{Ref(ctx)})"));
+        int app = w.Add("APPLICATION_CONTEXT('automotive design')");
+        w.Add($"APPLICATION_PROTOCOL_DEFINITION('international standard','automotive_design',2000,{Ref(app)})");
+        int productContext = w.Add($"PRODUCT_CONTEXT('',{Ref(app)},'mechanical')");
+        int definitionContext = w.Add($"PRODUCT_DEFINITION_CONTEXT('part definition',{Ref(app)},'design')");
+        // a product with its shape; its PRODUCT_DEFINITION
+        int Product(string name, int shape)
+        {
+            string n = Text(name);
+            int product = w.Add($"PRODUCT({n},{n},'',({Ref(productContext)}))");
+            w.Add($"PRODUCT_RELATED_PRODUCT_CATEGORY('part',$,({Ref(product)}))");
+            int formation = w.Add($"PRODUCT_DEFINITION_FORMATION('','',{Ref(product)})");
+            int definition = w.Add($"PRODUCT_DEFINITION('design','',{Ref(formation)},{Ref(definitionContext)})");
+            w.Add($"SHAPE_DEFINITION_REPRESENTATION({Ref(w.Add($"PRODUCT_DEFINITION_SHAPE('','',{Ref(definition)})"))},{Ref(shape)})");
+            return definition;
+        }
+
+        // one body: the file is its product, named after it; more, or groups: an assembly named after the file, each body
+        // a part in it named after the body (so a program such as FreeCAD shows the names), each group an assembly in it
+        // with its bodies and groups, all placed where they stand (unmoved)
+        string fileTitle = Path.GetFileNameWithoutExtension(fileName);
+        int top;
+        int uses = 0;
+        // an assembly of these (shape, definition, origin, name): its shape, definition and origin
+        (int Rep, int Def, int Origin) Assembly(string name, List<(int Rep, int Def, int Origin, string Name)> kids)
+        {
+            var placements = kids.Select(_ => w.Axis2(new Vec3(0, 0, 0), new Vec3(0, 0, 1), new Vec3(1, 0, 0))).ToList();
+            int origin = w.Axis2(new Vec3(0, 0, 0), new Vec3(0, 0, 1), new Vec3(1, 0, 0));
+            int rep = w.Add($"SHAPE_REPRESENTATION('',({Refs(placements.Prepend(origin))}),{Ref(ctx)})");
+            int def = Product(name, rep);
+            for (int i = 0; i < kids.Count; i++)
+            {
+                int move = w.Add($"ITEM_DEFINED_TRANSFORMATION('','',{Ref(kids[i].Origin)},{Ref(placements[i])})");
+                int use = w.Add($"NEXT_ASSEMBLY_USAGE_OCCURRENCE('{++uses}',{Text(kids[i].Name)},'',{Ref(def)},{Ref(kids[i].Def)},$)");
+                int rel = w.Add($"(REPRESENTATION_RELATIONSHIP('','',{Ref(kids[i].Rep)},{Ref(rep)})REPRESENTATION_RELATIONSHIP_WITH_TRANSFORMATION({Ref(move)})SHAPE_REPRESENTATION_RELATIONSHIP())");
+                w.Add($"CONTEXT_DEPENDENT_SHAPE_REPRESENTATION({Ref(rel)},{Ref(w.Add($"PRODUCT_DEFINITION_SHAPE('','',{Ref(use)})"))})");
+            }
+            return (rep, def, origin);
+        }
+        // what lies directly in group g (null: the top): its groups (each an assembly), then its bodies (each a part)
+        List<(int Rep, int Def, int Origin, string Name)> In(int? g)
+        {
+            var kids = new List<(int, int, int, string)>();
+            for (int k = 0; k < model.Groups.Count; k++)
+                if (model.Groups[k].Parent == g)
+                {
+                    string name = model.Groups[k].Name.Length > 0 ? model.Groups[k].Name : $"{fileTitle} {k + 1}";
+                    var (rep, def, origin) = Assembly(name, In(k));
+                    kids.Add((rep, def, origin, name));
+                }
+            for (int i = 0; i < shapes.Count; i++)
+                if (model.Bodies[i].Group == g)
+                {
+                    string name = model.Bodies[i].Name.Length > 0 ? model.Bodies[i].Name : $"{fileTitle} {i + 1}";
+                    kids.Add((shapes[i], Product(name, shapes[i]), origins[i], name));
+                }
+            return kids;
+        }
+        if (shapes.Count == 1 && model.Groups.Count == 0) { top = shapes[0]; Product(model.Bodies[0].Name.Length > 0 ? model.Bodies[0].Name : fileTitle, top); }
+        else if (shapes.Count > 0) top = Assembly(fileTitle, In(null)).Rep;
+        else
+        {
+            top = w.Add($"SHAPE_REPRESENTATION('',({Ref(w.Axis2(new Vec3(0, 0, 0), new Vec3(0, 0, 1), new Vec3(1, 0, 0)))}),{Ref(ctx)})");
+            Product(fileTitle, top);
+        }
+        // the loose lines, tied to the top shape
         if (curves.Count > 0)
         {
             int set = w.Add($"GEOMETRIC_CURVE_SET('Schets',({Refs(curves)}))");
-            reps.Add(w.Add($"GEOMETRICALLY_BOUNDED_WIREFRAME_SHAPE_REPRESENTATION('',({Ref(origin)},{Ref(set)}),{Ref(ctx)})"));
+            int wires = w.Add($"GEOMETRICALLY_BOUNDED_WIREFRAME_SHAPE_REPRESENTATION('',({Ref(w.Axis2(new Vec3(0, 0, 0), new Vec3(0, 0, 1), new Vec3(1, 0, 0)))},{Ref(set)}),{Ref(ctx)})");
+            w.Add($"SHAPE_REPRESENTATION_RELATIONSHIP('','',{Ref(top)},{Ref(wires)})");
         }
-        if (reps.Count == 0) reps.Add(w.Add($"SHAPE_REPRESENTATION('',({Ref(origin)}),{Ref(ctx)})"));
-        int app = w.Add("APPLICATION_CONTEXT('automotive design')");
-        w.Add($"APPLICATION_PROTOCOL_DEFINITION('international standard','automotive_design',2000,{Ref(app)})");
-        string name = Text(Path.GetFileNameWithoutExtension(fileName));
-        int product = w.Add($"PRODUCT({name},{name},'',({Ref(w.Add($"PRODUCT_CONTEXT('',{Ref(app)},'mechanical')"))}))");
-        w.Add($"PRODUCT_RELATED_PRODUCT_CATEGORY('part',$,({Ref(product)}))");
-        int formation = w.Add($"PRODUCT_DEFINITION_FORMATION('','',{Ref(product)})");
-        int definition = w.Add($"PRODUCT_DEFINITION('design','',{Ref(formation)},{Ref(w.Add($"PRODUCT_DEFINITION_CONTEXT('part definition',{Ref(app)},'design')"))})");
-        int shape = w.Add($"PRODUCT_DEFINITION_SHAPE('','',{Ref(definition)})");
-        w.Add($"SHAPE_DEFINITION_REPRESENTATION({Ref(shape)},{Ref(reps[0])})");
-        foreach (int r in reps.Skip(1)) w.Add($"SHAPE_REPRESENTATION_RELATIONSHIP('','',{Ref(reps[0])},{Ref(r)})");
         if (styled.Count > 0) w.Add($"MECHANICAL_DESIGN_GEOMETRIC_PRESENTATION_REPRESENTATION('',({Refs(styled)}),{Ref(ctx)})");
 
         var sb = new StringBuilder();
