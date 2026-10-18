@@ -1,0 +1,139 @@
+<!-- the look of the converter (colours, cards, buttons, chips), as the WPF window's Theme.xaml: included by the window
+     itself, so it looks the same when another program (PushPullMe) opens it -->
+<Styles xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+  <Styles.Resources>
+    <SolidColorBrush x:Key="Accent" Color="#2563EB"/>
+    <SolidColorBrush x:Key="AccentSoft" Color="#E3EEFF"/>
+    <SolidColorBrush x:Key="Ink" Color="#17223B"/>
+    <SolidColorBrush x:Key="Muted" Color="#64748B"/>
+    <SolidColorBrush x:Key="Line" Color="#E2E8F0"/>
+    <SolidColorBrush x:Key="Page" Color="#F3F6FB"/>
+    <LinearGradientBrush x:Key="AccentGradient" StartPoint="0%,0%" EndPoint="100%,100%">
+      <GradientStop Color="#2563EB" Offset="0"/>
+      <GradientStop Color="#06B6D4" Offset="1"/>
+    </LinearGradientBrush>
+    <LinearGradientBrush x:Key="ViewGradient" StartPoint="0%,0%" EndPoint="0%,100%">
+      <GradientStop Color="#FFFFFF" Offset="0"/>
+      <GradientStop Color="#E6EFFA" Offset="1"/>
+    </LinearGradientBrush>
+  </Styles.Resources>
+
+  <Style Selector="TextBlock">
+    <Setter Property="Foreground" Value="{StaticResource Ink}"/>
+  </Style>
+
+  <!-- cards, and the white panels floating over the view -->
+  <Style Selector="Border.card">
+    <Setter Property="Background" Value="White"/>
+    <Setter Property="CornerRadius" Value="18"/>
+    <Setter Property="Padding" Value="16,12"/>
+    <Setter Property="Margin" Value="0,0,0,12"/>
+    <Setter Property="BoxShadow" Value="0 4 24 0 #1F1E3A8A"/>
+  </Style>
+  <Style Selector="Border.float">
+    <Setter Property="Background" Value="White"/>
+    <Setter Property="CornerRadius" Value="16"/>
+    <Setter Property="BoxShadow" Value="0 4 24 0 #1F1E3A8A"/>
+  </Style>
+  <Style Selector="TextBlock.cardTitle">
+    <Setter Property="FontSize" Value="13"/>
+    <Setter Property="FontWeight" Value="Bold"/>
+    <Setter Property="Foreground" Value="{StaticResource Accent}"/>
+    <Setter Property="Margin" Value="0,0,0,10"/>
+  </Style>
+  <Style Selector="TextBlock.label">
+    <Setter Property="FontSize" Value="12.5"/>
+  </Style>
+  <Style Selector="TextBlock.value">
+    <Setter Property="Foreground" Value="{StaticResource Accent}"/>
+    <Setter Property="FontWeight" Value="Bold"/>
+    <Setter Property="FontSize" Value="12.5"/>
+    <Setter Property="HorizontalAlignment" Value="Right"/>
+  </Style>
+
+  <!-- pill buttons -->
+  <Style Selector="Button.pill">
+    <Setter Property="Background" Value="White"/>
+    <Setter Property="Foreground" Value="{StaticResource Ink}"/>
+    <Setter Property="BorderBrush" Value="{StaticResource Line}"/>
+    <Setter Property="BorderThickness" Value="1.5"/>
+    <Setter Property="CornerRadius" Value="20"/>
+    <Setter Property="Padding" Value="14,7"/>
+    <Setter Property="Margin" Value="0,0,8,8"/>
+    <Setter Property="FontWeight" Value="SemiBold"/>
+    <Setter Property="Cursor" Value="Hand"/>
+  </Style>
+  <Style Selector="Button.pill:pointerover /template/ ContentPresenter">
+    <Setter Property="Background" Value="White"/>
+    <Setter Property="BorderBrush" Value="{StaticResource Accent}"/>
+  </Style>
+  <Style Selector="Button.primary">
+    <Setter Property="Background" Value="{StaticResource AccentGradient}"/>
+    <Setter Property="Foreground" Value="White"/>
+    <Setter Property="BorderThickness" Value="0"/>
+  </Style>
+  <Style Selector="Button.primary:pointerover /template/ ContentPresenter">
+    <Setter Property="Background" Value="{StaticResource AccentGradient}"/>
+    <Setter Property="Foreground" Value="White"/>
+  </Style>
+
+  <!-- chips: on/off (a toggle) and the selection modes (one of three) -->
+  <Style Selector="ToggleButton.chip, RadioButton.chip">
+    <Setter Property="Background" Value="White"/>
+    <Setter Property="Foreground" Value="{StaticResource Ink}"/>
+    <Setter Property="BorderBrush" Value="{StaticResource Line}"/>
+    <Setter Property="BorderThickness" Value="1.5"/>
+    <Setter Property="CornerRadius" Value="16"/>
+    <Setter Property="Padding" Value="12,5"/>
+    <Setter Property="Margin" Value="0,0,6,6"/>
+    <Setter Property="FontSize" Value="12.5"/>
+    <Setter Property="Cursor" Value="Hand"/>
+  </Style>
+  <Style Selector="ToggleButton.chip:checked /template/ ContentPresenter">
+    <Setter Property="Background" Value="{StaticResource AccentSoft}"/>
+    <Setter Property="BorderBrush" Value="{StaticResource Accent}"/>
+    <Setter Property="Foreground" Value="{StaticResource Accent}"/>
+  </Style>
+  <Style Selector="ToggleButton.chip:pointerover /template/ ContentPresenter">
+    <Setter Property="BorderBrush" Value="{StaticResource Accent}"/>
+  </Style>
+  <Style Selector="RadioButton.chip">
+    <Setter Property="Template">
+      <ControlTemplate>
+        <Border Name="B" Background="White" BorderBrush="{StaticResource Line}" BorderThickness="1.5" CornerRadius="16" Padding="12,5">
+          <ContentPresenter Content="{TemplateBinding Content}" Foreground="{TemplateBinding Foreground}"/>
+        </Border>
+      </ControlTemplate>
+    </Setter>
+  </Style>
+  <Style Selector="RadioButton.chip:checked /template/ Border#B">
+    <Setter Property="Background" Value="{StaticResource AccentGradient}"/>
+    <Setter Property="BorderBrush" Value="Transparent"/>
+  </Style>
+  <Style Selector="RadioButton.chip:checked">
+    <Setter Property="Foreground" Value="White"/>
+  </Style>
+  <Style Selector="RadioButton.chip:pointerover /template/ Border#B">
+    <Setter Property="BorderBrush" Value="{StaticResource Accent}"/>
+  </Style>
+
+  <!-- a card's title that folds its card open and shut -->
+  <Style Selector="ToggleButton.fold">
+    <Setter Property="Background" Value="Transparent"/>
+    <Setter Property="BorderThickness" Value="0"/>
+    <Setter Property="Padding" Value="0"/>
+    <Setter Property="Cursor" Value="Hand"/>
+    <Setter Property="Template">
+      <ControlTemplate>
+        <StackPanel Orientation="Horizontal" Background="Transparent">
+          <TextBlock Text="{TemplateBinding Content}" Classes="cardTitle" Margin="0"/>
+          <TextBlock Name="Arrow" Text="  ▸" Foreground="{StaticResource Muted}" VerticalAlignment="Center"/>
+        </StackPanel>
+      </ControlTemplate>
+    </Setter>
+  </Style>
+  <Style Selector="ToggleButton.fold:checked /template/ TextBlock#Arrow">
+    <Setter Property="Text" Value="  ▾"/>
+  </Style>
+</Styles>

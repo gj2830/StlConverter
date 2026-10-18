@@ -2,7 +2,7 @@ name: Build and test
 
 on:
   push:
-    branches: [main]
+    branches: [main, develop]
   pull_request:
   workflow_dispatch:
 
@@ -15,4 +15,19 @@ jobs:
         with:
           dotnet-version: '10.0.x'
       - run: dotnet build StlConverter.slnx -c Release
+      - run: dotnet test tests/RsDocx.Tests -c Release
+
+  # the core and its tests, and the window for every system (Avalonia): on Windows, Linux and macOS
+  cross:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+      - run: dotnet build tools/StlConverter.Desktop -c Release
       - run: dotnet test tests/RsDocx.Tests -c Release
