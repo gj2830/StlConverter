@@ -76,21 +76,35 @@ public sealed record BrepNurbsSurface(int UDegree, int VDegree, int NU, int NV, 
     }
 
     /// <summary>The parameters of the point of the surface nearest to q: the nearest of a grid of samples, then Newton
-    /// steps on (u, v).</summary>
+    /// steps on (u, v); when those do not reach the surface, Newton steps from the next nearest samples too (each at
+    /// another place: where a revolved surface comes to a point, a whole row of samples is that point, and Newton
+    /// steps from there do not move).</summary>
     public (double U, double V) Parameters(Vec3 q)
     {
         double u0 = UKnots[0], u1 = UKnots[^1], v0 = VKnots[0], v1 = VKnots[^1];
         int nu = Math.Max(4, 4 * NU), nv = Math.Max(16, 8 * NV);
-        double bu = u0, bv = v0, bd = double.MaxValue;
+        var samples = new List<(double D, double U, double V, Vec3 P)>((nu + 1) * (nv + 1));
         for (int i = 0; i <= nu; i++)
             for (int j = 0; j <= nv; j++)
             {
                 double u = u0 + (u1 - u0) * i / nu, v = v0 + (v1 - v0) * j / nv;
-                double d = (At(u, v) - q).Length;
-                if (d < bd) { bd = d; bu = u; bv = v; }
+                var p = At(u, v);
+                samples.Add(((p - q).Length, u, v, p));
             }
-        var (nu1, nv1, _) = Newton(q, bu, bv);
-        return (At(nu1, nv1) - q).Length <= bd ? (nu1, nv1) : (bu, bv);
+        samples.Sort((a, b) => a.D.CompareTo(b.D));
+        var (bd, bu, bv, _) = samples[0];
+        var tried = new List<Vec3>();
+        foreach (var s in samples)
+        {
+            if (tried.Count == 4) break;
+            if (tried.Any(t => (t - s.P).Length < 1e-12)) continue;
+            tried.Add(s.P);
+            var (nu1, nv1, _) = Newton(q, s.U, s.V);
+            double d = (At(nu1, nv1) - q).Length;
+            if (d < bd) { bd = d; bu = nu1; bv = nv1; }
+            if (bd < 1e-12) break;
+        }
+        return (bu, bv);
     }
 
     /// <summary>As <see cref="Parameters(Vec3)"/>, starting from parameters near the answer (the previous point along
@@ -101,12 +115,20 @@ public sealed record BrepNurbsSurface(int UDegree, int VDegree, int NU, int NV, 
         return settled && (At(u, v) - q).Length <= tol ? (u, v) : Parameters(q);
     }
 
+    /// <summary>Where a few Newton steps from parameters near q end (settled or not; no search over the surface): for
+    /// whether a point near them is on the surface (one that is, they reach).</summary>
+    public (double U, double V) Near(Vec3 q, (double U, double V) near)
+    {
+        var (u, v, _) = Newton(q, near.U, near.V, 8);
+        return (u, v);
+    }
+
     /// <summary>Newton steps towards the nearest point from (bu, bv); whether they settled.</summary>
-    private (double U, double V, bool Settled) Newton(Vec3 q, double bu, double bv)
+    private (double U, double V, bool Settled) Newton(Vec3 q, double bu, double bv, int steps = 30)
     {
         double u0 = UKnots[0], u1 = UKnots[^1], v0 = VKnots[0], v1 = VKnots[^1];
         double hu = (u1 - u0) * 1e-7, hv = (v1 - v0) * 1e-7;
-        for (int it = 0; it < 30; it++)
+        for (int it = 0; it < steps; it++)
         {
             var p = At(bu, bv);
             var su = (At(Math.Min(u1, bu + hu), bv) - At(Math.Max(u0, bu - hu), bv)) * (1 / (Math.Min(u1, bu + hu) - Math.Max(u0, bu - hu)));

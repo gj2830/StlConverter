@@ -16,4 +16,10 @@
     <ProjectReference Include="../Geometry3Sharp/Geometry3Sharp.csproj" />
   </ItemGroup>
 
+  <!-- (what comes from rvt-rs is under Apache 2.0: its notice and licence go along with every program built on this) -->
+  <ItemGroup>
+    <None Include="../../THIRD-PARTY-NOTICES.md" Link="THIRD-PARTY-NOTICES.md" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <None Include="../../licenses/rvt-rs-LICENSE.txt" Link="licenses/rvt-rs-LICENSE.txt" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+  </ItemGroup>
+
 </Project>

@@ -15,7 +15,10 @@ exact geometry: planes, cylinders and cones are recognised and written as true s
 
 ## Contents
 
-- `src/RsDocx.Core`: reading and writing `.rsdocx` and STEP, and converting triangle meshes.
+- `src/RsDocx.Core`: reading and writing `.rsdocx` and STEP, and converting triangle meshes. `Revit/` reads Revit files
+  (`.rvt`, `.rfa`) without Revit: their description, preview and schema, and from Revit 2023 on the geometry Revit
+  saved with each element (planes, cylinders, surfaces of revolution and ruled surfaces), with what
+  [rvt-rs](https://github.com/DrunkOnJava/rvt-rs) found out about the format (see THIRD-PARTY-NOTICES.md).
 - `src/Geometry3Sharp`: [geometry3Sharp](https://github.com/gradientspace/geometry3Sharp) (Boost licence, see the
   LICENSE in that folder), used to repair meshes.
 - `tools/StlConverter`: a window to convert files (English and Dutch, 🌐 button), for Windows, Linux and macOS
@@ -60,8 +63,9 @@ zit er steeds bij voor de opdrachtregel. **Bouwen en testen:** de .NET 10 SDK op
 
 [PolyForm Noncommercial 1.0.0](LICENSE): free to use, change and share for any noncommercial purpose, and
 contributions are welcome; using it in a commercial product is not allowed. Earlier versions were released under MIT.
-`src/Geometry3Sharp` keeps its own Boost licence.
+`src/Geometry3Sharp` keeps its own Boost licence; what comes from rvt-rs is under Apache 2.0 (see
+[THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md)).
 
 Nederlands: vrij te gebruiken, aan te passen en te delen voor niet-commerciële doelen, en meewerken is welkom; gebruik in
 een commercieel product mag niet. Eerdere versies zijn onder MIT uitgebracht. `src/Geometry3Sharp` houdt zijn eigen
-Boost-licentie.
+Boost-licentie; wat uit rvt-rs komt valt onder Apache 2.0 (zie THIRD-PARTY-NOTICES.md).
