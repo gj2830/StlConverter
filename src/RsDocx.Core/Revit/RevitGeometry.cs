@@ -11,8 +11,9 @@ namespace RsDocx.Core.Revit;
 /// <see cref="Material"/>: what it is made of, its own or its category's (null: neither has one).</summary>
 public sealed record RevitFace(IReadOnlyList<StlTriangle> Triangles, IReadOnlyList<IReadOnlyList<Vec3>>? Rings, BrepSurface? Surface = null, RevitMaterial? Material = null);
 
-/// <summary>A Revit material: its name, the colour it is shaded with in 3D (0xRRGGBB) and how see-through it is (0 … 100).</summary>
-public sealed record RevitMaterial(string Name, uint Rgb, int Transparency);
+/// <summary>A Revit material: its name, the colour it is shaded with in 3D (0xRRGGBB) and how see-through it is (0: not,
+/// 1: wholly, as Revit's glass).</summary>
+public sealed record RevitMaterial(string Name, uint Rgb, double Transparency);
 
 /// <summary>A body of a Revit element (one saved Geometry, or a mesh): its faces.</summary>
 public sealed record RevitBody(IReadOnlyList<RevitFace> Faces);
@@ -103,8 +104,8 @@ public static class RevitGeometry
                     // (a colour as Windows keeps it: 0x00BBGGRR)
                     uint bgr = Convert.ToUInt32(c) & 0xFFFFFF;
                     uint rgb = (bgr & 0xFF) << 16 | (bgr & 0xFF00) | bgr >> 16;
-                    int see = mat.Fields.GetValueOrDefault("m_transparency") is { } t ? Convert.ToInt32(t) : 0;
-                    materials[(long)id] = new RevitMaterial(mat.Fields.GetValueOrDefault("m_name") as string ?? "", rgb, Math.Clamp(see, 0, 100));
+                    double see = mat.Fields.GetValueOrDefault("m_transparency") is { } t ? Convert.ToDouble(t) : 0;
+                    materials[(long)id] = new RevitMaterial(mat.Fields.GetValueOrDefault("m_name") as string ?? "", rgb, Math.Clamp(see, 0, 1));
                 }
                 else if (cls == "GStyleElem" && r.OfClass("GStyle").FirstOrDefault() is { } style && Identifier(style.Fields.GetValueOrDefault("m_materialElemId")) is { } mid and > 0)
                     categoryMaterial[(long)id] = mid;
