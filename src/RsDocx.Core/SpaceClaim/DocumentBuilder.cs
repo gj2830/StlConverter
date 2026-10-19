@@ -121,6 +121,100 @@ public static class DocumentBuilder
         return e;
     }
 
+    /// <summary>A part of the design as it goes into document.xml: its PartDef's id, its caption's id (null: the design
+    /// itself, which has its own) and name, its bodies' monikers and its uses (ComponentDef id, the PartDef used, where:
+    /// a 4×4 matrix by rows).</summary>
+    public sealed record PartIds(string Part, string? Caption, string Name, IReadOnlyList<string> Bodies, IReadOnlyList<(string Use, string Part, double[] Trans)> Uses);
+
+    /// <summary>
+    /// After <see cref="ReplaceBodies"/> put every body into the design's PartDef: a PartDef for every part but the first
+    /// (the design itself) with its bodies moved into it, a ComponentDef for each use of a part, and a caption naming each
+    /// part. As DesignSpark wrote testdata/blokken_gelinkt.rsdocx: a part's settings (patternBase, material, type,
+    /// shareTopologyOption) before its bodies, its ComponentDefs after them; a ComponentDef's source the used part as
+    /// &lt;document guid&gt;:&lt;number&gt;, its trans and lastEvaluatedTrans the same.
+    /// </summary>
+    public static void AddParts(XDocument doc, string guid, IReadOnlyList<PartIds> parts, int nextId)
+    {
+        var root = doc.Root!;
+        var design = root.Descendants(Nom + "PartDef").Single();
+        var bodies = design.Elements(Nom + "NominalBodyDef").ToDictionary(e => (string)e.Attribute("Id")!);
+        var after = design;
+        var defs = new List<XElement>();
+        for (int k = 0; k < parts.Count; k++)
+        {
+            var p = parts[k];
+            XElement def;
+            if (k == 0) def = design;
+            else
+            {
+                def = new XElement(Nom + "PartDef", new XAttribute("Id", p.Part),
+                    new XElement(Nom + "updateState", p.Part), new XElement(Nom + "patternBase"), new XElement(Nom + "materialId", "0:0"),
+                    new XElement(Nom + "type", "Normal"), new XElement(Nom + "shareTopologyOption", "None"));
+                foreach (var b in p.Bodies) { var e = bodies[b]; e.Remove(); def.Add(e); }
+                after.AddAfterSelf(def);
+                after = def;
+            }
+            defs.Add(def);
+        }
+        for (int k = 0; k < parts.Count; k++)
+        {
+            var def = defs[k];
+            var uses = parts[k].Uses.Select(u =>
+            {
+                string trans = string.Join(" ", u.Trans.Select(x => x.ToString("R", CultureInfo.InvariantCulture)));
+                return new XElement(Nom + "ComponentDef", new XAttribute("Id", u.Use), new XElement(Nom + "updateState", u.Use),
+                    new XElement(Nom + "source", new XAttribute("sctype", "SpaceClaim.BasicMoniker`1[[SpaceClaim.IEvaluation, Core]], Core"), new XAttribute("refId", $"{guid}:{u.Part.Split(':')[1]}")),
+                    new XElement(Nom + "trans", trans), new XElement(Nom + "lastAccuracy", "0"), new XElement(Nom + "lastEvaluatedTrans", trans));
+            }).ToList();
+            if (uses.Count == 0) continue;
+            // (after the part's bodies, or its sketch, or else at its end)
+            var last = def.Elements(Nom + "NominalBodyDef").LastOrDefault() ?? def.Elements().LastOrDefault(e => e.Name.LocalName == "PartSketchCurveContainerDef");
+            if (last != null) last.AddAfterSelf(uses); else def.Add(uses);
+        }
+        var pres = root.Element(Presentation + "PresentationDef")!;
+        foreach (var p in parts.Where(p => p.Caption != null))
+            pres.Add(new XElement(Presentation + "CaptionDef", new XAttribute("Id", p.Caption!),
+                new XElement(Presentation + "updateState", p.Caption), new XElement(Presentation + "subjectId", p.Part),
+                new XElement(Presentation + "name", p.Name), new XElement(Presentation + "description", ""),
+                new XElement(Presentation + "type", new XAttribute("version", "82"), "Normal")));
+        root.Element(Core + "nextId")!.Value = nextId.ToString(CultureInfo.InvariantCulture);
+    }
+
+    /// <summary>Rewrites renderlist.xml with an item per place a part stands (its PartDef, the ComponentDefs on the way to
+    /// it, where: a 4×4 matrix by rows, its bodies with whether each is faces without thickness) and the bounding box.</summary>
+    public static void WriteRenderList(XDocument renderList, IReadOnlyList<(string Part, string Path, double[] At, IReadOnlyList<(string Id, bool Sheet)> Bodies)> items,
+        (double x0, double y0, double z0, double x1, double y1, double z1) box)
+    {
+        foreach (var view in renderList.Root!.Elements("View"))
+        {
+            var proto = view.Elements("Item").FirstOrDefault() ?? new XElement("Item", new XAttribute("Dimmed", "0"), new XAttribute("Components", "0"));
+            view.Elements("Item").Remove();
+            foreach (var (part, path, at, bodies) in items)
+            {
+                var item = new XElement(proto);
+                item.RemoveNodes();
+                item.SetAttributeValue("Id", part);
+                item.SetAttributeValue("Transform", string.Join(",", at.Select(x => x.ToString("R", CultureInfo.InvariantCulture))));
+                item.SetAttributeValue("Path", path);
+                item.SetAttributeValue("Components", "0");
+                view.Add(item);
+            }
+            view.SetAttributeValue("Items", items.Count.ToString(CultureInfo.InvariantCulture));
+        }
+        // (the bodies and the box as for a single part, per item its own bodies)
+        foreach (var view in renderList.Root!.Elements("View"))
+        {
+            var list = view.Elements("Item").ToList();
+            for (int i = 0; i < list.Count; i++)
+            {
+                var one = new XDocument(new XElement("RenderList", new XElement("View", new XElement(list[i]))));
+                UpdateRenderList(one, items[i].Bodies, box);
+                list[i].ReplaceWith(one.Root!.Element("View")!.Element("Item")!);
+            }
+            view.SetAttributeValue("Box", string.Join(",", new[] { box.x0, box.y0, box.z0, box.x1, box.y1, box.z1 }.Select(d => d.ToString("R", CultureInfo.InvariantCulture))));
+        }
+    }
+
     /// <summary>Rewrites renderlist.xml for the given bodies and bounding box (metres).</summary>
     public static void UpdateRenderList(XDocument renderList, IReadOnlyList<string> bodyIds, (double x0, double y0, double z0, double x1, double y1, double z1) box) =>
         UpdateRenderList(renderList, bodyIds.Select(id => (id, false)).ToList(), box);
