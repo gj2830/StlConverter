@@ -123,6 +123,42 @@ public class StepTests
     }
 
     [Fact]
+    public void A_part_placed_twice_is_written_once_and_read_as_two_groups_sharing_it()
+    {
+        BrepBody Block(double x) => BrepShapes.FromPolyhedron(Polyhedron.Box(x * Mm, 0, 0, (x + 10) * Mm, 20 * Mm, 5 * Mm));
+        // the second a quarter turn round z and 100 mm along x
+        var turned = new StepPlace(new Vec3(100 * Mm, 0, 0), new Vec3(0, 1, 0), new Vec3(-1, 0, 0), new Vec3(0, 0, 1));
+        Vec3 Dir(Vec3 v) => turned.X * v.X + turned.Y * v.Y + turned.Z * v.Z;
+        Vec3 Out(Vec3 p) => turned.Origin + Dir(p);
+        var block = Block(0);
+        var there = new BrepBody
+        {
+            Vertices = block.Vertices.Select(Out).ToList(), Edges = block.Edges,
+            Faces = block.Faces.Select(f => f with { Surface = f.Surface is BrepPlane p ? p with { Origin = Out(p.Origin), Normal = Dir(p.Normal), XAxis = Dir(p.XAxis) } : f.Surface }).ToList(),
+        };
+        var model = new StepModel(
+            [new StepBody(block, "Blok", Group: 0), new StepBody(there, "Blok", Group: 1), new StepBody(Block(40), "Los")],
+            [], [new StepGroup("Poot", Shared: 0, Place: StepPlace.Identity), new StepGroup("Poot", Shared: 0, Place: turned)]);
+        string text = StepWriter.Write(model, "proef.step");
+        // the block once (and the loose one), the part used twice
+        Assert.Equal(2, text.Split("MANIFOLD_SOLID_BREP(").Length - 1);
+        Assert.Equal(1, text.Split("PRODUCT('Poot','Poot'").Length - 1);
+        var back = StepReader.Parse(text);
+        Assert.Equal(3, back.Bodies.Count);
+        Assert.Equal(2, back.Groups.Count);
+        Assert.Equal(0, back.Groups[0].Shared);
+        Assert.Equal(0, back.Groups[1].Shared);
+        var second = back.Bodies.Single(b => b.Group == 1).Body;
+        foreach (var v in there.Vertices) Assert.Contains(second.Vertices, w => (w - v).Length < 1e-9);
+        // its place: the turn, relative to the first
+        var p0 = back.Groups[0].Place!.Value; var p1 = back.Groups[1].Place!.Value;
+        Assert.True(p0.Origin.Length < 1e-12 && (p0.X - new Vec3(1, 0, 0)).Length < 1e-12);
+        Assert.True((p1.Origin - turned.Origin).Length < 1e-12 && (p1.X - turned.X).Length < 1e-12 && (p1.Z - turned.Z).Length < 1e-12);
+        Assert.Null(back.Bodies.Single(b => b.Name == "Los").Group);
+        Assert.Null(XtBrepBuilder.TopologyError(second));
+    }
+
+    [Fact]
     public void A_file_in_inches_and_degrees_comes_out_in_metres()
     {
         // a cone (half angle 30°) on a block, as a program working in inches might write it

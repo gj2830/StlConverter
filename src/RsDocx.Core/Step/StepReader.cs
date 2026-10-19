@@ -32,18 +32,21 @@ public static class StepReader
         // each body where it stands in the assembly (as often as its part is used there), named after its part when it
         // has no name of its own
         // the assemblies between a part and the top become groups (one per place in the tree: an assembly used twice is
-        // two groups), each before the groups in it
+        // two groups, the same part placed twice), each before the groups in it
         var placed = new List<StepBody>();
         var groups = new List<StepGroup>();
         var groupAt = new Dictionary<string, int>();
-        int? GroupFor(List<int> path, int k)
+        var groupRep = new List<int>();
+        int? GroupFor(List<(int Rep, int Rel, Move? Up)> path, int k)
         {
-            // (path: the assemblies from the part up; the last is the top, the file itself: no group)
+            // (path: the assemblies from the part up; the last is the top, the file itself: no group. Which use of an
+            // assembly: the uses above it)
             if (k >= path.Count - 1) return null;
-            string key = string.Join("/", path.Skip(k));
+            string key = path[k].Rep + "@" + string.Join("/", path.Skip(k + 1).Select(p => p.Rel));
             if (groupAt.TryGetValue(key, out int g)) return g;
             int? parent = GroupFor(path, k + 1);
-            groups.Add(new StepGroup(r.PartName(path[k]) ?? "", parent));
+            groups.Add(new StepGroup(r.PartName(path[k].Rep) ?? "", parent, Place: Place(path[k].Up)));
+            groupRep.Add(path[k].Rep);
             return groupAt[key] = groups.Count - 1;
         }
         for (int i = 0; i < bodies.Count; i++)
@@ -57,8 +60,15 @@ public static class StepReader
                 placed.Add(bodies[i] with { Body = move is { } m ? Moved(bodies[i].Body, m) : bodies[i].Body, Name = name, Group = GroupFor(path, 0) });
             }
         }
+        // an assembly placed more than once: a part shared by those groups
+        var shared = groupRep.GroupBy(x => x).Where(x => x.Count() > 1).Select((x, i) => (x.Key, i)).ToDictionary(x => x.Key, x => x.i);
+        groups = groups.Select((g, i) => shared.TryGetValue(groupRep[i], out int s) ? g with { Shared = s } : g with { Place = null }).ToList();
         return new StepModel(placed, r.Curves(), groups);
     }
+
+    /// <summary>A move as a place (none: where it is).</summary>
+    private static StepPlace Place(Move? m) => m is null ? StepPlace.Identity
+        : new StepPlace(m.Point(new Vec3(0, 0, 0)), m.Dir(new Vec3(1, 0, 0)), m.Dir(new Vec3(0, 1, 0)), m.Dir(new Vec3(0, 0, 1)));
 
     /// <summary>A placement: a point and three directions (x, y, z).</summary>
     private readonly record struct Frame(Vec3 O, Vec3 X, Vec3 Y, Vec3 Z)
@@ -372,10 +382,10 @@ public static class StepReader
         /// step an ITEM_DEFINED_TRANSFORMATION from a placement in the part to one in the assembly; null: none), and the
         /// name of its part (PRODUCT).
         /// </summary>
-        public List<(Move? Move, string? Part, List<int> Path)> Placements(int body)
+        public List<(Move? Move, string? Part, List<(int Rep, int Rel, Move? Up)> Path)> Placements(int body)
         {
             var reps = f.Entities.Values.Where(e => e.Type.EndsWith("REPRESENTATION", StringComparison.Ordinal) && e.Args.Count > 1 && L(e.Args[1]).Any(x => x is StepRef r && r.Id == body)).Select(e => e.Id).ToList();
-            var result = new List<(Move?, string?, List<int>)>();
+            var result = new List<(Move?, string?, List<(int, int, Move?)>)>();
             foreach (int rep in reps.Take(1))
                 foreach (var (move, path) in Chains(rep, new HashSet<int>()))
                     result.Add((move, PartName(rep), path));
@@ -383,11 +393,12 @@ public static class StepReader
         }
 
         /// <summary>Every way up from a representation to the top: the moves composed (null: none on the way), and the
-        /// shapes of the assemblies it goes through (the nearest first).</summary>
-        private List<(Move? Move, List<int> Path)> Chains(int rep, HashSet<int> seen)
+        /// assemblies it goes through (the nearest first): the shape of each, the relationship that places the one below
+        /// in it, and the move from it up to the top.</summary>
+        private List<(Move? Move, List<(int Rep, int Rel, Move? Up)> Path)> Chains(int rep, HashSet<int> seen)
         {
             if (!seen.Add(rep)) return [];
-            var ups = new List<(Move?, List<int>)>();
+            var ups = new List<(Move?, List<(int, int, Move?)>)>();
             foreach (var rr in f.Entities.Values)
             {
                 if (rr.Part("REPRESENTATION_RELATIONSHIP") is not { } rel || rel.Count < 4) continue;
@@ -399,7 +410,7 @@ public static class StepReader
                     var from = Frame3(E(t.Args[2])); var to = Frame3(E(t.Args[3]));
                     var step = new Move(p => to.Out(from.In(p)), d => to.Out(from.In(d + from.O)) - to.O);
                     foreach (var (up, path) in Chains(r2.Id, new HashSet<int>(seen)))
-                        ups.Add((up is null ? step : new Move(p => up.Point(step.Point(p)), d => up.Dir(step.Dir(d))), path.Prepend(r2.Id).ToList()));
+                        ups.Add((up is null ? step : new Move(p => up.Point(step.Point(p)), d => up.Dir(step.Dir(d))), path.Prepend((r2.Id, rr.Id, up)).ToList()));
                 }
                 else if (r1.Id == rep || r2.Id == rep)
                 {

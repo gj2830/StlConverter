@@ -9,8 +9,18 @@ namespace RsDocx.Core.Step;
 public sealed record StepBody(BrepBody Body, string Name, IReadOnlyDictionary<int, uint>? FaceColors = null, int? Group = null);
 
 /// <summary>A group of bodies (a sub-assembly in the file): its name, and the group it is in (an index in
-/// <see cref="StepModel.Groups"/>; null: at the top).</summary>
-public sealed record StepGroup(string Name, int? Parent = null);
+/// <see cref="StepModel.Groups"/>; null: at the top). Groups with the same <paramref name="Shared"/> are one part placed
+/// more than once (a component): each stands where its <paramref name="Place"/> puts the part's own coordinates. The file
+/// holds the shape once, so their bodies must be the same shape, each in its own place; the writer takes those of the
+/// first.</summary>
+public sealed record StepGroup(string Name, int? Parent = null, int? Shared = null, StepPlace? Place = null);
+
+/// <summary>A turn and a move: a point <c>p</c> of a part's own coordinates goes to <see cref="Origin"/> + p.X
+/// <see cref="X"/> + p.Y <see cref="Y"/> + p.Z <see cref="Z"/> (three unit directions square to each other, right-handed).</summary>
+public readonly record struct StepPlace(Vec3 Origin, Vec3 X, Vec3 Y, Vec3 Z)
+{
+    public static readonly StepPlace Identity = new(new Vec3(0, 0, 0), new Vec3(1, 0, 0), new Vec3(0, 1, 0), new Vec3(0, 0, 1));
+}
 
 /// <summary>A loose line or arc (not part of a body), from <see cref="Start"/> to <see cref="End"/>; an arc runs
 /// counter-clockwise round <see cref="Arc"/>'s normal.</summary>

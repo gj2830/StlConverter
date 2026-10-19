@@ -23,9 +23,9 @@ public static class StepWriter
         var w = new Writer();
         var ctx = w.Context();
         var styled = new List<int>();
-        // each body its own shape, an origin and its solid (or its faces without thickness)
-        var shapes = new List<int>(); var origins = new List<int>();
-        foreach (var b in model.Bodies)
+        // each body its own shape, an origin and its solid (or its faces without thickness); only the bodies written (those
+        // of a part placed again are not)
+        (int Shape, int Origin) BodyShape(StepBody b)
         {
             var faces = w.Body(b.Body);
             int item;
@@ -38,9 +38,20 @@ public static class StepWriter
             foreach (var (f, argb) in b.FaceColors ?? new Dictionary<int, uint>())
                 if (f < faces.Count) styled.Add(w.Add($"STYLED_ITEM('color',({Ref(w.Style(argb))}),{Ref(faces[f])})"));
             int origin = w.Axis2(new Vec3(0, 0, 0), new Vec3(0, 0, 1), new Vec3(1, 0, 0));
-            origins.Add(origin);
-            shapes.Add(w.Add($"{(b.Body.Sheet ? "MANIFOLD_SURFACE_SHAPE_REPRESENTATION" : "ADVANCED_BREP_SHAPE_REPRESENTATION")}('',({Ref(origin)},{Ref(item)}),{Ref(ctx)})"));
+            return (w.Add($"{(b.Body.Sheet ? "MANIFOLD_SURFACE_SHAPE_REPRESENTATION" : "ADVANCED_BREP_SHAPE_REPRESENTATION")}('',({Ref(origin)},{Ref(item)}),{Ref(ctx)})"), origin);
         }
+        // per part placed more than once the group whose bodies are written (the first not inside one placed again); the
+        // groups inside the others are not written (the groups come before the groups in them)
+        var chosen = new Dictionary<int, int>();
+        var again = new bool[model.Groups.Count];
+        for (int k = 0; k < model.Groups.Count; k++)
+        {
+            var group = model.Groups[k];
+            if (group.Parent is { } p && again[p]) again[k] = true;
+            else if (group.Shared is { } s && group.Place != null && !chosen.TryAdd(s, k)) again[k] = true;
+        }
+        // (in the order of the bodies, so they come back in it)
+        var shapes = model.Bodies.Select(b => b.Group is { } g && again[g] ? ((int, int)?)null : BodyShape(b)).ToList();
         var curves = model.Curves.Select(w.Trimmed).ToList();
 
         int app = w.Add("APPLICATION_CONTEXT('automotive design')");
@@ -61,15 +72,19 @@ public static class StepWriter
 
         // one body: the file is its product, named after it; more, or groups: an assembly named after the file, each body
         // a part in it named after the body (so a program such as FreeCAD shows the names), each group an assembly in it
-        // with its bodies and groups, all placed where they stand (unmoved)
+        // with its bodies and groups, all placed where they stand (unmoved); a part placed more than once (groups with the
+        // same Shared) written once, with the first group's bodies, its origin where that group's Place puts it, and
+        // placed again at each other group's Place
         string fileTitle = Path.GetFileNameWithoutExtension(fileName);
         int top;
         int uses = 0;
-        // an assembly of these (shape, definition, origin, name): its shape, definition and origin
-        (int Rep, int Def, int Origin) Assembly(string name, List<(int Rep, int Def, int Origin, string Name)> kids)
+        int Axis(StepPlace p) => w.Axis2(p.Origin, p.Z, p.X);
+        // an assembly of these (shape, definition, origin, name, where its origin goes; null: unmoved), its own origin
+        // at <origin>: its shape, definition and origin
+        (int Rep, int Def, int Origin) Assembly(string name, List<(int Rep, int Def, int Origin, string Name, StepPlace? To)> kids, StepPlace? at = null)
         {
-            var placements = kids.Select(_ => w.Axis2(new Vec3(0, 0, 0), new Vec3(0, 0, 1), new Vec3(1, 0, 0))).ToList();
-            int origin = w.Axis2(new Vec3(0, 0, 0), new Vec3(0, 0, 1), new Vec3(1, 0, 0));
+            var placements = kids.Select(k => Axis(k.To ?? StepPlace.Identity)).ToList();
+            int origin = Axis(at ?? StepPlace.Identity);
             int rep = w.Add($"SHAPE_REPRESENTATION('',({Refs(placements.Prepend(origin))}),{Ref(ctx)})");
             int def = Product(name, rep);
             for (int i = 0; i < kids.Count; i++)
@@ -82,26 +97,41 @@ public static class StepWriter
             return (rep, def, origin);
         }
         // what lies directly in group g (null: the top): its groups (each an assembly), then its bodies (each a part)
-        List<(int Rep, int Def, int Origin, string Name)> In(int? g)
+        var parts = new Dictionary<int, (int Rep, int Def, int Origin)>();
+        List<(int Rep, int Def, int Origin, string Name, StepPlace? To)> In(int? g)
         {
-            var kids = new List<(int, int, int, string)>();
+            var kids = new List<(int, int, int, string, StepPlace?)>();
             for (int k = 0; k < model.Groups.Count; k++)
                 if (model.Groups[k].Parent == g)
                 {
-                    string name = model.Groups[k].Name.Length > 0 ? model.Groups[k].Name : $"{fileTitle} {k + 1}";
-                    var (rep, def, origin) = Assembly(name, In(k));
-                    kids.Add((rep, def, origin, name));
+                    var group = model.Groups[k];
+                    string name = group.Name.Length > 0 ? group.Name : $"{fileTitle} {k + 1}";
+                    if (group.Shared is { } s && group.Place is { } place)
+                    {
+                        if (!parts.TryGetValue(s, out var part))
+                        {
+                            var first = model.Groups[chosen[s]];
+                            parts[s] = part = Assembly(first.Name.Length > 0 ? first.Name : $"{fileTitle} {chosen[s] + 1}", In(chosen[s]), first.Place);
+                        }
+                        kids.Add((part.Rep, part.Def, part.Origin, name, place));
+                    }
+                    else
+                    {
+                        var (rep, def, origin) = Assembly(name, In(k));
+                        kids.Add((rep, def, origin, name, null));
+                    }
                 }
-            for (int i = 0; i < shapes.Count; i++)
+            for (int i = 0; i < model.Bodies.Count; i++)
                 if (model.Bodies[i].Group == g)
                 {
                     string name = model.Bodies[i].Name.Length > 0 ? model.Bodies[i].Name : $"{fileTitle} {i + 1}";
-                    kids.Add((shapes[i], Product(name, shapes[i]), origins[i], name));
+                    var (shape, origin) = shapes[i]!.Value;
+                    kids.Add((shape, Product(name, shape), origin, name, null));
                 }
             return kids;
         }
-        if (shapes.Count == 1 && model.Groups.Count == 0) { top = shapes[0]; Product(model.Bodies[0].Name.Length > 0 ? model.Bodies[0].Name : fileTitle, top); }
-        else if (shapes.Count > 0) top = Assembly(fileTitle, In(null)).Rep;
+        if (model.Bodies.Count == 1 && model.Groups.Count == 0) { top = shapes[0]!.Value.Item1; Product(model.Bodies[0].Name.Length > 0 ? model.Bodies[0].Name : fileTitle, top); }
+        else if (model.Bodies.Count > 0) top = Assembly(fileTitle, In(null)).Rep;
         else
         {
             top = w.Add($"SHAPE_REPRESENTATION('',({Ref(w.Axis2(new Vec3(0, 0, 0), new Vec3(0, 0, 1), new Vec3(1, 0, 0)))}),{Ref(ctx)})");
