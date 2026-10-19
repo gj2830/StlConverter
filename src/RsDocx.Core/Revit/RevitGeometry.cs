@@ -7,8 +7,12 @@ namespace RsDocx.Core.Revit;
 /// <summary>A face of a Revit body (metres): its triangles, wound outward as saved; its rings, the outer one first, then
 /// its holes (the points the faces next to it share), when it has them; and its exact surface where it is curved
 /// (a cylinder, sphere, torus, a plane square to an axis, or a NURBS surface of revolution; null for a flat face, which
-/// its rings give, or a surface not given exactly). The surface may face either way: its triangles say which is out.</summary>
-public sealed record RevitFace(IReadOnlyList<StlTriangle> Triangles, IReadOnlyList<IReadOnlyList<Vec3>>? Rings, BrepSurface? Surface = null);
+/// its rings give, or a surface not given exactly). The surface may face either way: its triangles say which is out.
+/// <see cref="Material"/>: what it is made of, its own or its category's (null: neither has one).</summary>
+public sealed record RevitFace(IReadOnlyList<StlTriangle> Triangles, IReadOnlyList<IReadOnlyList<Vec3>>? Rings, BrepSurface? Surface = null, RevitMaterial? Material = null);
+
+/// <summary>A Revit material: its name, the colour it is shaded with in 3D (0xRRGGBB) and how see-through it is (0 … 100).</summary>
+public sealed record RevitMaterial(string Name, uint Rgb, int Transparency);
 
 /// <summary>A body of a Revit element (one saved Geometry, or a mesh): its faces.</summary>
 public sealed record RevitBody(IReadOnlyList<RevitFace> Faces);
@@ -81,6 +85,30 @@ public static class RevitGeometry
             catch (Exception e) when (e is FormatException or InvalidCastException) { }
         }
         report.Voids = voids.Count;
+        // the materials (each its colour and transparency), and the material of each category (its graphics style's)
+        var materials = new Dictionary<long, RevitMaterial>();
+        var categoryMaterial = new Dictionary<long, long>();
+        foreach (var (id, (cls, body)) in records)
+        {
+            if (cls is not ("MaterialElem" or "GStyleElem")) continue;
+            try
+            {
+                var r = RevitGraph.Decode(body, schema);
+                if (cls == "MaterialElem" && r.OfClass("Material").FirstOrDefault() is { } mat && mat.Fields.GetValueOrDefault("m_color") is { } c)
+                {
+                    // (a colour as Windows keeps it: 0x00BBGGRR)
+                    uint bgr = Convert.ToUInt32(c) & 0xFFFFFF;
+                    uint rgb = (bgr & 0xFF) << 16 | (bgr & 0xFF00) | bgr >> 16;
+                    int see = mat.Fields.GetValueOrDefault("m_transparency") is { } t ? Convert.ToInt32(t) : 0;
+                    materials[(long)id] = new RevitMaterial(mat.Fields.GetValueOrDefault("m_name") as string ?? "", rgb, Math.Clamp(see, 0, 100));
+                }
+                else if (cls == "GStyleElem" && r.OfClass("GStyle").FirstOrDefault() is { } style && Identifier(style.Fields.GetValueOrDefault("m_materialElemId")) is { } mid and > 0)
+                    categoryMaterial[(long)id] = mid;
+            }
+            catch (Exception e) when (e is FormatException or InvalidCastException or OverflowException) { }
+        }
+        RevitMaterial? MaterialOf(long material, long category) =>
+            materials.GetValueOrDefault(material) ?? (categoryMaterial.TryGetValue(category, out long cm) ? materials.GetValueOrDefault(cm) : null);
         var graphics = file.Records(103).Where(kv => kv.Value.Body.Length >= 2).ToDictionary(kv => kv.Key, kv => kv.Value.Body);
         RevitGraph? Decode(ulong id)
         {
@@ -107,7 +135,7 @@ public static class RevitGeometry
         {
             if (symbols.Contains(id) || voids.Contains(id) || !InModel(classes.GetValueOrDefault(id, "?")) || Decode(id) is not { } g || g.Objects.Count == 0 || g.Objects[0].ClassName != "GElement") continue;
             var bodies = new List<RevitBody>();
-            new Walker(Symbol, report, bodies).Visit(g, 0, Identity, 0);
+            new Walker(Symbol, report, bodies, MaterialOf).Visit(g, 0, Identity, 0, -1);
             if (bodies.Count == 0) continue;
             report.Elements++;
             each(new RevitElementMesh(id, classes.GetValueOrDefault(id, "?"), bodies));
@@ -134,7 +162,7 @@ public static class RevitGeometry
         v is List<object?> l && l.Count == n ? l.Select(x => x switch { double d => d, float f => f, _ => throw new FormatException("not a number") }).ToArray()
             : throw new FormatException($"not {n} numbers");
 
-    private sealed class Walker(Func<ulong, RevitGraph?> graph, RevitGeometryReport report, List<RevitBody> bodies)
+    private sealed class Walker(Func<ulong, RevitGraph?> graph, RevitGeometryReport report, List<RevitBody> bodies, Func<long, long, RevitMaterial?> material)
     {
         /// <summary>The faces of the body being read.</summary>
         private List<RevitFace> _faces = new();
@@ -159,10 +187,13 @@ public static class RevitGeometry
         private static bool OnlyCurves(RevitGraph g, RevitObject o, int depth) => depth < 128 && (Curves.Contains(o.ClassName)
             || o.ClassName is "GElement" or "GGroup" or "GFilter" && Children(g, o).All(c => OnlyCurves(g, g.Objects[c], depth + 1)));
 
-        public void Visit(RevitGraph g, int index, double[,] m, int depth)
+        /// <summary>A node of the graphics with what is above it: the transform <paramref name="m"/> and the category
+        /// <paramref name="category"/> (a node with none of its own (-1) is in its parent's).</summary>
+        public void Visit(RevitGraph g, int index, double[,] m, int depth, long category)
         {
             if (depth > 128) { Unjudged("too deep"); return; }
             var o = g.Objects[index];
+            if (F(o, "m_GInfo") is Dictionary<string, object?> gi && Identifier(gi.GetValueOrDefault("m_categoryId")) is { } own and > 0) category = own;
             // (visibility in the graphics flags: 1 and 3 are drawn only in a special mode)
             if (F(o, "m_GInfo") is Dictionary<string, object?> info && info.GetValueOrDefault("m_flags") is uint flags && Visibility(flags) is 1 or 3)
             {
@@ -176,11 +207,11 @@ public static class RevitGeometry
                         Body(() =>
                         {
                             foreach (var p in faces)
-                                if (g.Follow(p) is { ClassName: "Face" } face) Face(g, face, m);
+                                if (g.Follow(p) is { ClassName: "Face" } face) Face(g, face, m, category);
                         });
                     break;
                 case "GPolyMesh":
-                    Body(() => PolyMesh(g, o, m));
+                    Body(() => PolyMesh(g, o, m, material(-1, category)));
                     break;
                 case "GElement" or "GGroup" or "GFilter":
                 {
@@ -208,7 +239,7 @@ public static class RevitGeometry
                             report.LightSources++;
                             continue;
                         }
-                        Visit(g, c, m, depth + 1);
+                        Visit(g, c, m, depth + 1, category);
                     }
                     break;
                 }
@@ -222,9 +253,9 @@ public static class RevitGeometry
                     if (F(o, "m_oEmbeddedSymbolGRep") is RevitPointer { Token: 0 })
                     {
                         if (Identifier(F(ii, "m_symbolId")) is not { } sid || sid <= 0 || graph((ulong)sid) is not { } sg || sg.Objects.Count == 0) { Unjudged("symbol graphics"); return; }
-                        Visit(sg, 0, placed, depth + 1);
+                        Visit(sg, 0, placed, depth + 1, category);
                     }
-                    else if (g.IndexOf(F(o, "m_oEmbeddedSymbolGRep")) is { } embedded) Visit(g, embedded, placed, depth + 1);
+                    else if (g.IndexOf(F(o, "m_oEmbeddedSymbolGRep")) is { } embedded) Visit(g, embedded, placed, depth + 1, category);
                     else Unjudged("embedded symbol");
                     break;
                 }
@@ -411,7 +442,7 @@ public static class RevitGeometry
 
         private static StlTriangle Tri(Vec3 a, Vec3 b, Vec3 c, bool flip) => flip ? new StlTriangle(a, c, b) : new StlTriangle(a, b, c);
 
-        private void PolyMesh(RevitGraph g, RevitObject o, double[,] m)
+        private void PolyMesh(RevitGraph g, RevitObject o, double[,] m, RevitMaterial? made)
         {
             if (g.Follow(F(o, "m_pFacetedTopology")) is not { ClassName: "FacetedTopology0" } t
                 || F(t, "m_pointsArr") is not List<object?> points || F(t, "m_facetsArr") is not List<object?> facets) { Unjudged("poly mesh"); return; }
@@ -426,7 +457,7 @@ public static class RevitGeometry
                     int[] k = ix.Select(x => Convert.ToInt32(x)).ToArray();
                     tris.Add(Tri(pts[k[0]], pts[k[1]], pts[k[2]], flip));
                 }
-                _faces.Add(new RevitFace(tris, null));
+                _faces.Add(new RevitFace(tris, null, null, made));
             }
             catch (Exception e) when (e is FormatException or ArgumentOutOfRangeException or InvalidCastException) { Unjudged("poly mesh"); }
         }
@@ -644,9 +675,11 @@ public static class RevitGeometry
             }
         }
 
-        private void Face(RevitGraph g, RevitObject face, double[,] m)
+        private void Face(RevitGraph g, RevitObject face, double[,] m, long category)
         {
             report.Faces++;
+            // (its own material, else its category's)
+            var made = material(Identifier(F(face, "m_renderStyleId")) ?? -1, category);
             if (g.Follow(F(face, "m_pSurf")) is not { } surf) { Unjudged("face without surface"); return; }
             if (g.Follow(F(face, "m_pFirstLoop")) is not { } first) return; // (no trimming loop: an auxiliary surface)
             try
@@ -701,7 +734,7 @@ public static class RevitGeometry
                         foreach (var r in rings) { list.Add(onEdges.GetRange(k0, r.Count)); k0 += r.Count; }
                         ringsInSpace = list;
                     }
-                    _faces.Add(new RevitFace(triangles, ringsInSpace, exact));
+                    _faces.Add(new RevitFace(triangles, ringsInSpace, exact, made));
                 }
             }
             catch (Exception e) when (e is FormatException or InvalidCastException or ArgumentException or InvalidOperationException) { Unjudged(surf.ClassName + " face: " + e.Message); }
