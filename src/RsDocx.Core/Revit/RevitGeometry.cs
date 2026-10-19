@@ -17,9 +17,13 @@ public sealed record RevitMaterial(string Name, uint Rgb, int Transparency);
 /// <summary>A body of a Revit element (one saved Geometry, or a mesh): its faces.</summary>
 public sealed record RevitBody(IReadOnlyList<RevitFace> Faces);
 
-/// <summary>An element of a Revit model as Revit last drew it in 3D: its id, its class ("ArcWall", "FamilyInstance") and
-/// its bodies.</summary>
-public sealed record RevitElementMesh(ulong Id, string Class, IReadOnlyList<RevitBody> Bodies)
+/// <summary>A level of a Revit model (a storey, or one a family brought along): its id, its name and its height
+/// (metres).</summary>
+public sealed record RevitLevel(ulong Id, string Name, double Elevation);
+
+/// <summary>An element of a Revit model as Revit last drew it in 3D: its id, its class ("ArcWall", "FamilyInstance"),
+/// its bodies, and the level it stands on (null: none).</summary>
+public sealed record RevitElementMesh(ulong Id, string Class, IReadOnlyList<RevitBody> Bodies, RevitLevel? Level = null)
 {
     /// <summary>All its triangles.</summary>
     public IEnumerable<StlTriangle> Triangles => Bodies.SelectMany(b => b.Faces).SelectMany(f => f.Triangles);
@@ -107,6 +111,53 @@ public static class RevitGeometry
             }
             catch (Exception e) when (e is FormatException or InvalidCastException or OverflowException) { }
         }
+        // the levels (name, height): the model's own; a copy of one a group keeps (m_unplacedOwnerId) is that one; a
+        // family's own (m_famId: its "Ref. Level") none
+        var levels = new Dictionary<long, RevitLevel?>();
+        var copies = new List<(long Id, RevitLevel Level)>();
+        foreach (var (id, (cls, body)) in records)
+        {
+            if (cls != "Level") continue;
+            try
+            {
+                var r = RevitGraph.Decode(body, schema);
+                var level = r.Objects[0];
+                double z = r.Follow(level.Fields.GetValueOrDefault("m_pSurface")) is { } plane && plane.Fields.GetValueOrDefault("m_origin") is List<object?> { Count: 3 } o ? Convert.ToDouble(o[2]) : 0;
+                var made = new RevitLevel(id, level.Fields.GetValueOrDefault("m_text") as string ?? "", z * Foot);
+                if (Identifier(level.Fields.GetValueOrDefault("m_famId")) is > 0) levels[(long)id] = null;
+                else if (Identifier(level.Fields.GetValueOrDefault("m_unplacedOwnerId")) is > 0) copies.Add(((long)id, made));
+                else levels[(long)id] = made;
+            }
+            catch (Exception e) when (e is FormatException or InvalidCastException or ArgumentOutOfRangeException) { }
+        }
+        var storeys = levels.Values.OfType<RevitLevel>().OrderBy(l => l.Elevation).ToList();
+        foreach (var (id, copy) in copies)
+            levels[id] = storeys.FirstOrDefault(l => l.Name == copy.Name && Math.Abs(l.Elevation - copy.Elevation) < 1e-6) ?? copy;
+        // (an element's level: the one it is placed on, or listed on, or a beam's or column's reference level; else (a
+        // family's own level, or none named) the storey under its lowest point; the terrain none, as it runs over many)
+        RevitLevel? LevelOf(ulong id, string cls, List<RevitBody> bodies)
+        {
+            if (storeys.Count == 0 || cls is "Toposolid" or "TopographySurface") return null;
+            long? named = null;
+            if (records.TryGetValue(id, out var rec))
+                try
+                {
+                    var r = RevitGraph.Decode(rec.Body, schema);
+                    var fields = r.Objects[0].Fields;
+                    named = new[] { "m_assocLevelId", "m_scheduleOnlyLevelId", "m_levelId" }.Select(n => Identifier(fields.GetValueOrDefault(n))).FirstOrDefault(l => l is > 0 && levels.ContainsKey(l.Value));
+                    named ??= r.Objects.Select(o => o.ClassName switch
+                    {
+                        "FamInstCurveDriver" => Identifier(o.Fields.GetValueOrDefault("m_refLevelId")),
+                        "StructColumnCurveDriver" => o.Fields.GetValueOrDefault("m_refLevels") is List<object?> { Count: > 0 } rl ? Identifier(rl[0]) : null,
+                        "FamilyLevelRef" => Identifier(o.Fields.GetValueOrDefault("m_elemId")),
+                        _ => null,
+                    }).FirstOrDefault(l => l is > 0 && levels.ContainsKey(l.Value));
+                }
+                catch (Exception e) when (e is FormatException or InvalidCastException or ArgumentOutOfRangeException) { }
+            if (named is { } n && levels[n] is { } level) return level;
+            double low = bodies.SelectMany(b => b.Faces).SelectMany(f => f.Triangles).SelectMany(t => new[] { t.A.Z, t.B.Z, t.C.Z }).DefaultIfEmpty(0).Min();
+            return storeys.LastOrDefault(s => s.Elevation <= low + 0.05) ?? storeys[0];
+        }
         RevitMaterial? MaterialOf(long material, long category) =>
             materials.GetValueOrDefault(material) ?? (categoryMaterial.TryGetValue(category, out long cm) ? materials.GetValueOrDefault(cm) : null);
         var graphics = file.Records(103).Where(kv => kv.Value.Body.Length >= 2).ToDictionary(kv => kv.Key, kv => kv.Value.Body);
@@ -138,7 +189,7 @@ public static class RevitGeometry
             new Walker(Symbol, report, bodies, MaterialOf).Visit(g, 0, Identity, 0, -1);
             if (bodies.Count == 0) continue;
             report.Elements++;
-            each(new RevitElementMesh(id, classes.GetValueOrDefault(id, "?"), bodies));
+            each(new RevitElementMesh(id, classes.GetValueOrDefault(id, "?"), bodies, LevelOf(id, classes.GetValueOrDefault(id, "?"), bodies)));
         }
     }
 
