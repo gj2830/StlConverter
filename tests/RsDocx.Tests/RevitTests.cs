@@ -8,10 +8,11 @@ namespace RsDocx.Tests;
 /// (Autodesk's), so the tests that need it pass without it.</summary>
 public class RevitTests(ITestOutputHelper output)
 {
+    /// <summary>testdata/test.rvt, or null where it is not (as on the build servers: TestData throws then).</summary>
     private static string? Sample()
     {
-        string path = KubusXtTests.TestData("test.rvt");
-        return File.Exists(path) ? path : null;
+        try { return KubusXtTests.TestData("test.rvt"); }
+        catch (FileNotFoundException) { return null; }
     }
 
     [Fact]
