@@ -88,13 +88,17 @@ public static class RevitGeometry
             try { return RevitGraph.Decode(body, schema); }
             catch (FormatException) { return null; }
         }
-        // the symbols instances refer to are drawn where they are placed, not on their own
+        // the symbols instances refer to are drawn where they are placed, not on their own; only by the instances the
+        // walk takes (a group's instances of its members, drawn in the view (m_resolveSymInView), it does not: those
+        // members, a balcony's floor and railing, are drawn as themselves)
         var symbols = new HashSet<ulong>();
         foreach (var id in graphics.Keys)
         {
             if (Decode(id) is not { } g) { report.UndecodedGraphs++; continue; }
-            foreach (var info in g.OfClass("InstanceInfo"))
-                if (Identifier(info.Fields.GetValueOrDefault("m_symbolId")) is { } s and > 0) symbols.Add((ulong)s);
+            foreach (var instance in g.OfClass("GInstance"))
+                if (Walker.Taken(instance) && g.Follow(instance.Fields.GetValueOrDefault("m_instanceInfo")) is { ClassName: "InstanceInfo" } info
+                    && Identifier(info.Fields.GetValueOrDefault("m_symbolId")) is { } s and > 0)
+                    symbols.Add((ulong)s);
         }
         // (a symbol's graphics read once, kept for every instance of it)
         var symbolGraphs = new Dictionary<ulong, RevitGraph?>();
@@ -210,7 +214,7 @@ public static class RevitGeometry
                 }
                 case "GInstance":
                 {
-                    if (F(o, "m_bHasScale") is not false || F(o, "m_resolveSymInView") is not false) { Unjudged("instance mode"); return; }
+                    if (!Taken(o)) { Unjudged("instance mode"); return; }
                     if (g.Follow(F(o, "m_instanceInfo")) is not { ClassName: "InstanceInfo" } ii) { Unjudged("instance info"); return; }
                     var t = Transform(F(ii, "m_Trf"));
                     if (t == null) { Unjudged("instance transform"); return; }
@@ -232,6 +236,9 @@ public static class RevitGeometry
                     break;
             }
         }
+
+        /// <summary>Whether the walk takes an instance (one drawn without a scale, not resolved in the view).</summary>
+        public static bool Taken(RevitObject instance) => F(instance, "m_bHasScale") is false && F(instance, "m_resolveSymInView") is false;
 
         /// <summary>Whether a node has a category of its own (not the one it is in: -1).</summary>
         private static bool OwnCategory(RevitObject o) =>
