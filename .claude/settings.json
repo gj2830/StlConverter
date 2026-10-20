@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "ask": [
+      "Edit(/tests/**/Intent*)",
+      "Write(/tests/**/Intent*)"
+    ]
+  }
+}

@@ -33,3 +33,8 @@ testdata/*
 
 # notes (kept privately)
 NOTES.md
+
+# private working agreements and skills of the assistant
+CLAUDE.local.md
+.claude/skills/
+.claude/settings.local.json
