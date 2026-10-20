@@ -82,10 +82,20 @@ jobs:
     needs: build
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v4
+        with:
+          path: src
       - uses: actions/download-artifact@v4
         with:
           merge-multiple: true
       - name: Release
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release create ${{ github.ref_name }} StlConverter-* --repo ${{ github.repository }} --title "StlConverter ${{ github.ref_name }}" --generate-notes
+        # what is new: docs/releases/<tag>.md, else the message of an annotated tag; GitHub's "Full Changelog" line below it
+        run: |
+          tag=${{ github.ref_name }}
+          git -C src fetch --force origin "refs/tags/$tag:refs/tags/$tag"
+          if [ -f "src/docs/releases/$tag.md" ]; then cp "src/docs/releases/$tag.md" notes.md
+          elif [ "$(git -C src cat-file -t "$tag")" = tag ]; then git -C src tag -l --format='%(contents)' "$tag" > notes.md
+          else : > notes.md; fi
+          gh release create "$tag" StlConverter-* --repo ${{ github.repository }} --title "StlConverter $tag" --notes-file notes.md --generate-notes
