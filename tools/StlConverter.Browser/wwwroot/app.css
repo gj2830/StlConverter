@@ -1,0 +1,24 @@
+/* The page is the app: no margins, no scroll bars; the view takes the whole window. */
+html, body, #out {
+    margin: 0;
+    padding: 0;
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+    background: #F3F6FB;
+}
+
+#avalonia-splash {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font: 600 20px system-ui, sans-serif;
+    color: #64748B;
+}
+
+/* (Avalonia marks it so once the app draws) */
+#avalonia-splash.splash-close {
+    display: none;
+}

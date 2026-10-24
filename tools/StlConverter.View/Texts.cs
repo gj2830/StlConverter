@@ -10,6 +10,7 @@ public static class Texts
     {
         ["Van driehoekjes naar échte vlakken, cilinders, bollen en donuts."] = "From triangles to real faces, cylinders, spheres and doughnuts.",
         ["📂  BESTAND"] = "📂  FILE",
+        ["Sluiten zonder over te nemen"] = "Close without taking anything over",
         ["Open STL / 3MF…"] = "Open STL / 3MF…",
         ["Eenheid in het bestand"] = "Unit in the file",
         ["…of sleep een bestand op het venster."] = "…or drag a file onto the window.",

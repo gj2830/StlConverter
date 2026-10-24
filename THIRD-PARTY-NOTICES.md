@@ -23,6 +23,15 @@ From its NOTICE:
 The same holds for this project: it is not affiliated with Autodesk, and uses no Autodesk code or SDK. Revit files used
 in tests (`testdata/test.rvt`, one of Autodesk's sample projects) are not part of this repository.
 
+## Noto fonts
+
+`src/BrowserKit/Fonts`: Noto Emoji, Noto Sans Math, Noto Sans Symbols and Noto Sans Symbols 2 (from
+[google/fonts](https://github.com/google/fonts)), the symbols and emoji of the browser apps (a browser has no fonts of
+its own). SIL Open Font License 1.1 (see licenses/noto-fonts-OFL.txt).
+
+    Noto Emoji: Copyright 2013 Google LLC
+    Noto Sans Math, Noto Sans Symbols, Noto Sans Symbols 2: Copyright 2022 The Noto Project Authors
+
 ## geometry3Sharp
 
 `src/Geometry3Sharp`: [geometry3Sharp](https://github.com/gradientspace/geometry3Sharp), Boost Software License (see the

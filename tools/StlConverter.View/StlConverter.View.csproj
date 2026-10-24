@@ -1,0 +1,32 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- The converter's view, shared by every system (Avalonia, the mesh through OpenGL/WebGL): ConverterView with the
+       mesh view, the texts and the look. Around it: the desktop window (tools/StlConverter, also what PushPullMe opens on
+       the desktop), the browser page (tools/StlConverter.Browser), or a layer over PushPullMe's view in the browser.
+       Each gives it an IConverterHost for what differs there (file dialogs, messages, closing). -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>StlConverter</RootNamespace>
+    <!-- (vertex data handed to OpenGL by pointer) -->
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <AvaloniaResource Include="logo.png" Link="Assets\logo.png" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Avalonia" Version="12.1.4" />
+    <PackageReference Include="Avalonia.Skia" Version="12.1.4" />
+    <PackageReference Include="Avalonia.Themes.Fluent" Version="12.1.4" />
+    <PackageReference Include="Silk.NET.OpenGL" Version="2.23.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\RsDocx.Core\RsDocx.Core.csproj" />
+    <ProjectReference Include="..\..\src\GlKit\GlKit.csproj" />
+  </ItemGroup>
+
+</Project>

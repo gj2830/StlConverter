@@ -6,12 +6,15 @@ namespace StlConverter;
 
 public partial class App : Application
 {
+    /// <summary>What the system starts with, set by its Program before Avalonia starts: the desktop opens a window
+    /// around the view, the browser puts the view in the page.</summary>
+    public static Action<IApplicationLifetime?> Begin { get; set; } = _ => { };
+
     public override void Initialize() => AvaloniaXamlLoader.Load(this);
 
     public override void OnFrameworkInitializationCompleted()
     {
-        if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
-            desktop.MainWindow = new ConverterWindow(desktop.Args is { Length: > 0 } args && File.Exists(args[0]) ? args[0] : null, embedded: false);
+        Begin(ApplicationLifetime);
         base.OnFrameworkInitializationCompleted();
     }
 }

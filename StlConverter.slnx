@@ -1,6 +1,7 @@
 <Solution>
   <Folder Name="/src/">
     <Project Path="src/Geometry3Sharp/Geometry3Sharp.csproj" />
+    <Project Path="src/GlKit/GlKit.csproj" />
     <Project Path="src/RsDocx.Core/RsDocx.Core.csproj" />
   </Folder>
   <Folder Name="/tests/">
@@ -10,6 +11,7 @@
     <Project Path="tools/rsdump/rsdump.csproj" />
     <Project Path="tools/rsgen/rsgen.csproj" />
     <Project Path="tools/StlConverter/StlConverter.csproj" />
+    <Project Path="tools/StlConverter.View/StlConverter.View.csproj" />
     <Project Path="tools/stl2rsdocx/stl2rsdocx.csproj" />
   </Folder>
 </Solution>

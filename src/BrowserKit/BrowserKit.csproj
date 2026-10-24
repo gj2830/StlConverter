@@ -1,0 +1,22 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- What a browser app (the converter's, PushPullMe's) needs that the desktop has of itself. Fonts: a browser has
+       none; Inter for the text, and as fallbacks the Noto fonts for the symbols and emoji of buttons and texts (SIL Open
+       Font License, licenses/noto-fonts-OFL.txt). Files: a browser has no paths; a chosen file goes through the runtime's in-memory
+       folder. Only for the browser apps. -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <AvaloniaResource Include="Fonts\*.ttf" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Avalonia" Version="12.1.4" />
+    <PackageReference Include="Avalonia.Fonts.Inter" Version="12.1.4" />
+  </ItemGroup>
+
+</Project>

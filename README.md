@@ -22,7 +22,10 @@ exact geometry: planes, cylinders and cones are recognised and written as true s
 - `src/Geometry3Sharp`: [geometry3Sharp](https://github.com/gradientspace/geometry3Sharp) (Boost licence, see the
   LICENSE in that folder), used to repair meshes.
 - `tools/StlConverter`: a window to convert files (English and Dutch, 🌐 button), for Windows, Linux and macOS
-  (Avalonia, OpenGL).
+  (Avalonia, OpenGL), around the converter's view in `tools/StlConverter.View`. `tools/StlConverter.Browser`: the same
+  in a browser (WebAssembly, WebGL; a trial, not released yet).
+- `src/GlKit`: the GL calls of the 3D views and their drawing in a browser; `src/BrowserKit`: fonts and files for the
+  browser apps (shared with PushPullMe).
 - `tools/stl2rsdocx`, `rsdump`, `rsgen`: command-line helpers.
 
 ## Download

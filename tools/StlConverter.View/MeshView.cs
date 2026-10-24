@@ -3,8 +3,8 @@ using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.OpenGL;
-using Avalonia.OpenGL.Controls;
 using Avalonia.Rendering;
+using GlKit;
 using Silk.NET.OpenGL;
 
 namespace StlConverter;
@@ -35,7 +35,7 @@ public sealed class LineLayer
 /// the edges. The right button turns the view (round the point under the mouse), the middle one pans, the wheel zooms
 /// toward the mouse; the left button is the window's (selecting).
 /// </summary>
-public sealed class MeshView : OpenGlControlBase, ICustomHitTest
+public sealed class MeshView : GlView, ICustomHitTest
 {
     public bool HitTest(Point point) => new Rect(Bounds.Size).Contains(point);
 
@@ -67,7 +67,7 @@ public sealed class MeshView : OpenGlControlBase, ICustomHitTest
 
     public bool HasLines(string name) => _lines.ContainsKey(name);
 
-    private void Changed() { _dirty = true; RequestNextFrameRendering(); }
+    private void Changed() { _dirty = true; Redraw(); }
 
     // ------------------------------------------------------------------ the camera
 
@@ -85,7 +85,7 @@ public sealed class MeshView : OpenGlControlBase, ICustomHitTest
         if (look.Length < 1e-12 || Vector3D.CrossProduct(look, up).Length < 1e-9 * look.Length * up.Length) return;
         if (!double.IsFinite(position.X + position.Y + position.Z + look.X + look.Y + look.Z)) return;
         Position = position; Look = look; Up = up;
-        RequestNextFrameRendering();
+        Redraw();
     }
 
     /// <summary>The camera frame: eye, right, up, forward (unit), and how far the view reaches across and up per unit forward.</summary>
@@ -190,7 +190,7 @@ public sealed class MeshView : OpenGlControlBase, ICustomHitTest
     public MeshView()
     {
         Focusable = true;
-        PropertyChanged += (_, e) => { if (e.Property == BoundsProperty) RequestNextFrameRendering(); };
+        PropertyChanged += (_, e) => { if (e.Property == BoundsProperty) Redraw(); };
     }
 
     private Vector3D PointUnder(Point pos) => FindHits(pos) is [var first, ..] ? new Vector3D(first.At.X, first.At.Y, first.At.Z) : Position + Look;
@@ -279,7 +279,7 @@ public sealed class MeshView : OpenGlControlBase, ICustomHitTest
 
     // ------------------------------------------------------------------ drawing
 
-    private GL? _gl;
+    private IGl? _gl;
     private uint _faceProgram, _lineProgram;
     private int _uMvp, _uLight, _uColor, _uBack, _uTwoSided, _uLineMvp, _uHalf;
 
@@ -293,14 +293,14 @@ public sealed class MeshView : OpenGlControlBase, ICustomHitTest
     public Task<(int W, int H, byte[] Rgba)> CaptureAsync()
     {
         var tcs = _capture ??= new TaskCompletionSource<(int, int, byte[])>(TaskCreationOptions.RunContinuationsAsynchronously);
-        RequestNextFrameRendering();
+        Redraw();
         return tcs.Task;
     }
 
-    protected override void OnOpenGlInit(GlInterface gl)
+    protected override void OnGlInit(IGl gl, GlVersion version)
     {
-        _gl = GL.GetApi(gl.GetProcAddress);
-        string head = GlVersion.Type == GlProfileType.OpenGLES ? "#version 300 es\nprecision highp float;\n" : "#version 330 core\n";
+        _gl = gl;
+        string head = version.Type == GlProfileType.OpenGLES ? "#version 300 es\nprecision highp float;\n" : "#version 330 core\n";
         _faceProgram = Program(head + """
             layout(location = 0) in vec3 aPos;
             layout(location = 1) in vec3 aNormal;
@@ -358,7 +358,7 @@ public sealed class MeshView : OpenGlControlBase, ICustomHitTest
         _dirty = true;
     }
 
-    protected override void OnOpenGlDeinit(GlInterface gl)
+    protected override void OnGlDeinit(IGl gl)
     {
         if (_gl == null) return;
         foreach (var b in _opaque.Concat(_seeThrough).Concat(_lineBatches).Concat(_spare)) { _gl.DeleteBuffer(b.Vbo); _gl.DeleteVertexArray(b.Vao); }
@@ -471,13 +471,11 @@ public sealed class MeshView : OpenGlControlBase, ICustomHitTest
             (float)er, (float)eu, (float)(a * ef + b), (float)ef);
     }
 
-    protected override unsafe void OnOpenGlRender(GlInterface gl, int fb)
+    protected override unsafe void OnGlRender(int fb, int w, int h)
     {
         if (_gl == null) return;
         var g = _gl;
         if (_dirty) { Upload(); _dirty = false; }
-        double scale = TopLevel.GetTopLevel(this)?.RenderScaling ?? 1;
-        int w = Math.Max(1, (int)(Bounds.Width * scale)), h = Math.Max(1, (int)(Bounds.Height * scale));
         g.BindFramebuffer(FramebufferTarget.Framebuffer, (uint)fb);
         g.Viewport(0, 0, (uint)w, (uint)h);
         // (transparent: the window's gradient shows through, as behind the WPF viewport)

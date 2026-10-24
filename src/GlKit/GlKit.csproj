@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- What the 3D views of the converter and of PushPullMe draw with on every system (desktop and browser): the GL
+       calls they use (IGl: Silk.NET on the desktop, WebGL straight in the browser) and GlView, the control that draws
+       through Avalonia's OpenGL control or, in a browser, in Skia's WebGL context. -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <!-- (vertex data handed to OpenGL by pointer) -->
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Avalonia" Version="12.1.4" />
+    <PackageReference Include="Avalonia.Skia" Version="12.1.4" />
+    <PackageReference Include="Silk.NET.OpenGL" Version="2.23.0" />
+  </ItemGroup>
+
+</Project>

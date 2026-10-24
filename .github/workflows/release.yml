@@ -49,8 +49,8 @@ jobs:
           cp -R publish/. "$app/Contents/MacOS/"
           mkdir icon.iconset
           for s in 16 32 128 256 512; do
-            sips -z $s $s tools/StlConverter/logo.png --out icon.iconset/icon_${s}x${s}.png > /dev/null
-            sips -z $((s*2)) $((s*2)) tools/StlConverter/logo.png --out icon.iconset/icon_${s}x${s}@2x.png > /dev/null
+            sips -z $s $s tools/StlConverter.View/logo.png --out icon.iconset/icon_${s}x${s}.png > /dev/null
+            sips -z $((s*2)) $((s*2)) tools/StlConverter.View/logo.png --out icon.iconset/icon_${s}x${s}@2x.png > /dev/null
           done
           iconutil -c icns icon.iconset -o "$app/Contents/Resources/StlConverter.icns"
           cat > "$app/Contents/Info.plist" <<EOF

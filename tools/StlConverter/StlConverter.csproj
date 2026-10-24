@@ -1,7 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
-  <!-- The converter's window for Windows, Linux and macOS (Avalonia, the mesh through OpenGL). On its own an app;
-       PushPullMe opens ConverterWindow from it for a mesh. -->
+  <!-- The converter for Windows, Linux and macOS: a window around the shared view (tools/StlConverter.View). On its own
+       an app; PushPullMe opens ConverterWindow from it for a mesh. -->
   <PropertyGroup>
     <OutputType>WinExe</OutputType>
     <TargetFramework>net10.0</TargetFramework>
@@ -11,8 +11,6 @@
     <RootNamespace>StlConverter</RootNamespace>
     <!-- the logo (logo.png, made square) as the icon of the program -->
     <ApplicationIcon>logo.ico</ApplicationIcon>
-    <!-- (vertex data handed to OpenGL by pointer) -->
-    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <!-- the bodies of a mesh are recognised in parallel: with the workstation GC the threads mostly wait for each other
          (obj_1_BCons: 656 s against 387 s with the server GC) -->
     <ServerGarbageCollection>true</ServerGarbageCollection>
@@ -20,18 +18,13 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <AvaloniaResource Include="logo.png" Link="Assets\logo.png" />
-  </ItemGroup>
-
-  <ItemGroup>
     <PackageReference Include="Avalonia" Version="12.1.4" />
     <PackageReference Include="Avalonia.Desktop" Version="12.1.4" />
     <PackageReference Include="Avalonia.Themes.Fluent" Version="12.1.4" />
-    <PackageReference Include="Silk.NET.OpenGL" Version="2.23.0" />
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\..\src\RsDocx.Core\RsDocx.Core.csproj" />
+    <ProjectReference Include="..\StlConverter.View\StlConverter.View.csproj" />
   </ItemGroup>
 
 </Project>
