@@ -139,6 +139,33 @@ public class StlTests
         Assert.Equal(1, stats.CollinearRemoved);
         Assert.Empty(XtValidator.Validate(XtReader.Read(RsDocxComposer.Compose(bodies).GetPart(RsDocxComposer.GeometryPart))));
     }
+
+    [Fact]
+    public void Long_chain_of_collinear_vertices_is_removed_completely()
+    {
+        // block 100 x 10 x 10 mm whose front (y=0) and bottom (z=0) share an edge split into 500 pieces, both faces fanned
+        // from a corner; every removal makes the next vertex removable (the faster RemoveCollinear looks at the neighbours
+        // again instead of scanning everything)
+        const int n = 500;
+        var p = Enumerable.Range(0, n + 1).Select(i => new Vec3(100.0 * i / n, 0, 0)).ToArray();
+        Vec3 c010 = new(0, 10, 0), c110 = new(100, 10, 0), c001 = new(0, 0, 10), c101 = new(100, 0, 10), c011 = new(0, 10, 10), c111 = new(100, 10, 10);
+        var tris = new List<StlTriangle>();
+        for (int i = 0; i < n; i++)
+        {
+            tris.Add(new(p[i + 1], p[i], c010)); // bottom
+            tris.Add(new(p[i], p[i + 1], c001)); // front
+        }
+        tris.AddRange([new(c110, p[n], c010), new(p[n], c101, c001)]);
+        Vec3[][] quads = [[c001, c101, c111, c011], [p[n], c110, c111, c101], [c110, c010, c011, c111], [c010, p[0], c001, c011]];
+        foreach (var q in quads) tris.AddRange([new(q[0], q[1], q[2]), new(q[0], q[2], q[3])]);
+
+        var bodies = MeshConverter.Convert(new StlFile { Header = "", Binary = false, Triangles = tris }, new MeshOptions { MergeCoplanar = true }, out var stats);
+        var b = Assert.Single(bodies);
+        Assert.Equal(6, b.Faces.Count);
+        Assert.Equal(8, b.Vertices.Count);
+        Assert.Equal(n - 1, stats.CollinearRemoved);
+        Assert.Empty(XtValidator.Validate(XtReader.Read(RsDocxComposer.Compose(bodies).GetPart(RsDocxComposer.GeometryPart))));
+    }
 }
 
 public class HoleTests
@@ -243,6 +270,19 @@ public class CylinderRecognitionTests
         Assert.All(b.Faces, f => Assert.IsType<RsDocx.Core.Brep.BrepSphere>(f.Surface));
         Assert.Equal(new[] { 7.2801, 10.2234 }, b.Faces.Select(f => Math.Round(((RsDocx.Core.Brep.BrepSphere)f.Surface).Radius * 1000, 4)).Order());
         Assert.IsType<RsDocx.Core.Brep.BrepCircle>(Assert.Single(b.Edges).Curve);
+        RsDocxComposer.Compose(bodies); // strict validation inside
+    }
+
+    [Fact]
+    public void Curved_surfaces_below_the_minimum_radius_stay_facets()
+    {
+        var stl = StlReader.Read(KubusXtTests.TestData("Spoelhouder.stl"));
+        var opt = new MeshOptions { MergeCoplanar = true, RecognizeCylinders = true, RecognizeSpheres = true, RecognizeTori = true };
+        MeshConverter.ConvertToBrep(stl, opt, out var all);
+        Assert.True(all.Cylinders > 0);
+        // (every rounding of this part is far smaller than half a metre)
+        var bodies = MeshConverter.ConvertToBrep(stl, opt with { MinCurvedRadius = 0.5 }, out var none);
+        Assert.Equal(0, none.Cylinders + none.Spheres + none.Tori);
         RsDocxComposer.Compose(bodies); // strict validation inside
     }
 

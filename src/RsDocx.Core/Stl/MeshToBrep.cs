@@ -110,6 +110,75 @@ public sealed class MeshToBrep
         }).ToList();
     private static readonly bool Debug = Environment.GetEnvironmentVariable("RSDEBUG") == "1";
     private static int _dbgCount;
+    /// <summary>
+    /// After a round that asked for a retry: every surface it found away from the triangles it changes goes into the next
+    /// round as it is, a found surface like any other (it may take in facets, give way in a conflict), but not searched
+    /// for again; only round the changes is searched again. A surface that reaches into that neighbourhood is searched
+    /// again whole (kept in part, a cylinder came back in pieces). Every round redid everything before: voetstuk took
+    /// 3 s a round, and a conflict solved where it is (not by giving up a large surface) costs a round. (Kept as fixed
+    /// groups instead, they could take nothing in: twice the rounds.)
+    /// </summary>
+    private void KeepAwayFrom(IEnumerable<int> changed)
+    {
+        var dirty = new HashSet<int>(changed);
+        // the neighbourhood: two rings of facets round the changes
+        for (int ring = 0; ring < 2; ring++)
+            foreach (int t in dirty.ToList())
+                for (int k = 0; k < 3; k++) dirty.Add(Across(t, k));
+        _carry.Clear();
+        foreach (var r in _regions)
+        {
+            if (r.Fixed || (!r.Curved && r.Tris.Count < 2) || r.Tris.Any(dirty.Contains)) continue;
+            _carry.Add(new Region
+            {
+                IsCylinder = r.IsCylinder, IsSphere = r.IsSphere, IsTorus = r.IsTorus, IsCone = r.IsCone, Minor = r.Minor,
+                Origin = r.Origin, Axis = r.Axis, Radius = r.Radius, Hollow = r.Hollow,
+            });
+            _carry[^1].Tris.AddRange(r.Tris);
+        }
+    }
+
+    /// <summary>Surfaces carried into the next round (see <see cref="KeepAwayFrom"/>), and the regions made of them in this one.</summary>
+    private readonly List<Region> _carry = new();
+    private readonly HashSet<Region> _carried = new();
+
+    /// <summary>The carried surfaces as regions, before the rest is segmented.</summary>
+    private void PlaceCarried()
+    {
+        _carried.Clear();
+        foreach (var c in _carry)
+        {
+            if (c.Tris.Any(t => _regionOf[t] >= 0 || _forced.Contains(t) || (c.Curved && _noCurve.Contains(t)))) continue;
+            var r = new Region();
+            r.Tris.AddRange(c.Tris);
+            foreach (int t in r.Tris) _regionOf[t] = _regions.Count;
+            _regions.Add(r);
+            _carried.Add(r);
+            _shapeOf[r] = c;
+        }
+    }
+
+    /// <summary>After the planes are fitted: the carried curved surfaces get their shape back.</summary>
+    private void ShapeCarried()
+    {
+        foreach (var r in _carried)
+        {
+            var c = _shapeOf[r];
+            if (!c.Curved) continue;
+            r.IsCylinder = c.IsCylinder; r.IsSphere = c.IsSphere; r.IsTorus = c.IsTorus; r.IsCone = c.IsCone;
+            r.Origin = c.Origin; r.Axis = c.Axis; r.Radius = c.Radius; r.Minor = c.Minor; r.Hollow = c.Hollow;
+        }
+    }
+    private readonly Dictionary<Region, Region> _shapeOf = new();
+
+    /// <summary>Debug: the largest surfaces now (not limited like <see cref="Dbg"/>).</summary>
+    private void Big(string when)
+    {
+        if (!Debug) return;
+        foreach (var r in _regions.Where(r => !r.Free).OrderByDescending(r => r.Tris.Count).Take(12))
+            Console.Error.WriteLine(FormattableString.Invariant($"[big] {when}: {r.Tris.Count} facets, {Describe(r, _v[_t[r.Tris[0]][0]])}"));
+    }
+
     private static void Dbg(string s) { if (Debug && _dbgCount++ < 20000) Console.Error.WriteLine("[rec] " + s); }
     public List<string> Notes { get; } = new();
 
@@ -166,12 +235,13 @@ public sealed class MeshToBrep
             try
             {
                 SegmentPlanes(); Lap("segment"); Trace("segment");
-                FitPlanes(); Lap("fit planes");
+                FitPlanes(); ShapeCarried(); Lap("fit planes");
                 FitHints(); Lap("hints");
                 // cylinders first: they are found very reliably (sleutelrek: fit 1e-9 m); facets around a bend between two
                 // rods can also fit a sphere and must not be taken by it. Columns of sphere facets are kept out of the
                 // cylinders by the sphere test in GrowCylinder.
                 if (_opt.RecognizeCylinders) FindCylinders(); Lap("cylinders");
+                if (Rounds == 1 && _opt.RecognizeCylinders) Big("round 1");
                 if (_opt.RecognizeCylinders) MergeCoincidentCylinders();
                 Trace("cylinders");
                 // cones before spheres and tori: a band between two circles fits all three exactly (see FindCones)
@@ -185,10 +255,14 @@ public sealed class MeshToBrep
                 DropEmptyRegions();
                 Regularise(); if (_opt.RecognizeCones) RegulariseCones(); Lap("regularise"); Trace("regularise");
                 var result = MakeBody(); Lap("make body");
+                // (surfaces kept from an earlier round were not searched for in this one: they count as found too)
+                foreach (var r in _regions.Where(r => _carried.Contains(r) && r.Tris.Count > 0))
+                    if (r.IsTorus) ToriFound++; else if (r.IsCone) ConesFound++; else if (r.IsSphere) SpheresFound++; else if (r.IsCylinder) CylindersFound++;
                 SingleFacets = _regions.Count(r => r.Free);
                 if (Debug)
                 {
                     Dbg($"result after {Rounds} rounds: {result.Faces.Count} faces, {_regions.Count(r => r.Free)} single facets");
+                    Big($"result after {Rounds} rounds");
                     // where are the single facets? (2 mm cells)
                     foreach (var g in _regions.Where(r => r.Free).GroupBy(r => { var c = _v[_t[r.Tris[0]][0]]; return (Math.Floor(c.X * 500), Math.Floor(c.Y * 500), Math.Floor(c.Z * 500)); })
                         .OrderByDescending(g => g.Count()).Take(15))
@@ -205,6 +279,14 @@ public sealed class MeshToBrep
             }
             catch (RetryException e)
             {
+                if (Debug)
+                {
+                    // which large surfaces this round gives up (in full or in part): the ones the user sees go missing
+                    foreach (var r in _regions.Where(r => r.Tris.Count >= 200 && r.Tris.Any(e.Tris.Contains)))
+                        Console.Error.WriteLine(FormattableString.Invariant($"[big] round {Rounds}: {Describe(r, _v[_t[r.Tris[0]][0]])} gives up {r.Tris.Count(e.Tris.Contains)} of {r.Tris.Count} facets: {e.Message[..Math.Min(90, e.Message.Length)]}"));
+                    foreach (var r in _regions.Where(r => r.Tris.Count >= 200 && r.Tris.Any(e.Peel.Contains)))
+                        Console.Error.WriteLine(FormattableString.Invariant($"[big] round {Rounds}: {Describe(r, _v[_t[r.Tris[0]][0]])} peels {r.Tris.Count(e.Peel.Contains)} of {r.Tris.Count} facets"));
+                }
                 Lap("step that asked for a retry");
                 // a dissolved curved surface only stops its facets from forming that kind of surface again
                 foreach (int t in e.Tris)
@@ -217,6 +299,9 @@ public sealed class MeshToBrep
                 _absorb.UnionWith(e.Absorb);
                 _noCurve.UnionWith(e.Peel);
                 last = e.Message;
+                // (not with the user's groups: a recognised surface on a group's surface is merged into it, and a kept one
+                // would stay apart)
+                if (_opt.LocalRounds && _hints.Count == 0) KeepAwayFrom(e.Tris.Concat(e.Absorb).Concat(e.Peel));
                 Dbg($"round {Rounds}: {e.Message}; {_forced.Count} facets forced, {_absorb.Count} to absorb, {_noCurve.Count} peeled");
                 if (ExclusionCount == before) break;
             }
@@ -273,6 +358,7 @@ public sealed class MeshToBrep
                 _hintOf[r] = hi;
             }
         }
+        PlaceCarried();
         double cosTol = Math.Cos(_opt.AngleToleranceDeg * Math.PI / 180);
         for (int seed = 0; seed < _t.Count; seed++)
         {
@@ -848,7 +934,7 @@ public sealed class MeshToBrep
             double span = 0;
             foreach (int r1 in cluster.Where(r => !IsSliver(_regions[r]))) foreach (int r2 in cluster.Where(r => !IsSliver(_regions[r])))
                 span = Math.Max(span, Math.Acos(Math.Clamp(_regions[r1].N.Dot(_regions[r2].N), -1, 1)));
-            if (cluster.Count < _opt.SphereMinRegions || span * 180 / Math.PI < _opt.CylinderMinSpanDeg || radius > _opt.MaxCurvedRadius) continue;
+            if (cluster.Count < _opt.SphereMinRegions || span * 180 / Math.PI < _opt.CylinderMinSpanDeg || radius > _opt.MaxCurvedRadius || radius < _opt.MinCurvedRadius) continue;
             // the vertices of a short cylinder lie on two circles, and those lie exactly on a sphere: reject when all facet
             // normals are perpendicular to one direction (cylinder strips), which is never the case on a real sphere patch
             var nn = new double[3, 3];
@@ -938,7 +1024,7 @@ public sealed class MeshToBrep
                 origin = o2; radius = r2;
             }
         }
-        if (cluster.Count < _opt.CylinderMinStrips || radius > _opt.MaxCurvedRadius) return null;
+        if (cluster.Count < _opt.CylinderMinStrips || radius > _opt.MaxCurvedRadius || radius < _opt.MinCurvedRadius) return null;
 
         // phase 2: the cylinder is fixed now; also take neighbouring facets whose shared edges are not along the axis
         // (zig-zag triangles where both rims are divided differently) and vertices slightly off the circle
@@ -1252,12 +1338,23 @@ public sealed class MeshToBrep
         double tol = Math.Max(Math.Max(_opt.DistanceTolerance, _opt.CylinderFitTolerance), _opt.CoplanarUnifyTolerance);
         var planes = _regions.Where(r => !r.Curved && !r.Free && r.Tris.Count > 0).OrderByDescending(Area).ToList();
         var done = new HashSet<Region>();
+        // candidates only from the window |q.D - p.D| < tol of the planes sorted by D: comparing every plane with every
+        // other one took minutes on a mesh of 100000 facets (voetstuk)
+        var byD = planes.OrderBy(q => q.D).ToArray();
+        var ds = byD.Select(q => q.D).ToArray();
+        double cosTol = Math.Cos(_opt.AngleToleranceDeg * Math.PI / 180);
         foreach (var p in planes)
         {
             if (done.Contains(p)) continue;
-            double cosTol = Math.Cos(_opt.AngleToleranceDeg * Math.PI / 180);
-            var group = planes.Where(q => !done.Contains(q) && q.N.Dot(p.N) > cosTol && Math.Abs(q.D - p.D) < tol
-                && VerticesOf(q).All(v => Math.Abs(p.N.Dot(_v[v]) - p.D) <= tol)).ToList();
+            int lo = Array.BinarySearch(ds, p.D - tol);
+            if (lo < 0) lo = ~lo;
+            var group = new List<Region>();
+            for (int i = lo; i < byD.Length && ds[i] < p.D + tol; i++)
+            {
+                var q = byD[i];
+                if (!done.Contains(q) && q.N.Dot(p.N) > cosTol && Math.Abs(q.D - p.D) < tol
+                    && VerticesOf(q).All(v => Math.Abs(p.N.Dot(_v[v]) - p.D) <= tol)) group.Add(q);
+            }
             done.UnionWith(group);
             if (group.Count < 2) continue;
             // the largest region's plane wins, if all members still fit it
@@ -1369,6 +1466,7 @@ public sealed class MeshToBrep
         // vertex positions: exactly on all fitted surfaces around them
         var finalPos = new Vec3[verts.Count];
         var retry = new HashSet<int>();
+        var conflictAt = new HashSet<int>();
         string? firstProblem = null;
         foreach (var (mv, id) in vertexId)
         {
@@ -1394,12 +1492,14 @@ public sealed class MeshToBrep
                 if (victim is { Curved: true }) Dbg("  dissolve " + Describe(victim, _v[mv]) + FormattableString.Invariant($" at vertex ({_v[mv].X * 1000:0.###},{_v[mv].Y * 1000:0.###},{_v[mv].Z * 1000:0.###}) (resid {resid:E1}, move {(p - _v[mv]).Length:E1}, circle {onCircle != null}): ") + string.Join(", ", constraints.Select(r => Describe(r, _v[mv])))
                     + "; at the placed point: " + string.Join(", ", constraints.Select(r => Signed(r, p, out _).ToString("E1", CultureInfo.InvariantCulture))));
                 if (victim != null) retry.UnionWith(victim.Tris);
+                conflictAt.Add(mv);
                 if (Debug) Dbg(FormattableString.Invariant($"  vertex conflict ({_v[mv].X * 1000:0.###},{_v[mv].Y * 1000:0.###},{_v[mv].Z * 1000:0.###}): resid {resid:E1}, move {(p - _v[mv]).Length:E1} (max {maxMove:E1}), victim {(victim == null ? "-" : Describe(victim, _v[mv]))}"));
             }
             finalPos[id] = p;
         }
-        if (retry.Count > 0) throw new RetryException(retry, firstProblem!);
-        if (firstProblem != null) throw new MeshException(firstProblem);
+        // (vertex conflicts are not given up on at once: the edges away from them are checked too, and all problems go
+        // into the next round together; one kind per round made voetstuk take 60 rounds)
+        if (retry.Count == 0 && firstProblem != null) throw new MeshException(firstProblem);
 
         // single facets: plane through their placed corners
         foreach (var reg in _regions.Where(r => r.Free))
@@ -1421,6 +1521,7 @@ public sealed class MeshToBrep
         {
             var (pts, r, o) = edgeChains[e];
             var ra = _regions[r]; var rb = _regions[o];
+            if (conflictAt.Count > 0 && pts.Any(conflictAt.Contains)) continue; // (its end is not placed: it would fail too)
             BrepCurve curve;
             try
             {
@@ -1513,9 +1614,11 @@ public sealed class MeshToBrep
                 if (victim.Curved && !victim.IsTorus && victim.Tris.Count > _opt.PeelThreshold)
                 {
                     // do not give up a large cylinder/sphere for one awkward edge: take its facets at this edge out of it
+                    // (unless they were peeled before and taken in again: peeling once more changes nothing, and the round
+                    // would repeat until recognition gives up on the whole shell, voetstuk at 15 %)
                     var chainVerts = new HashSet<int>(pts);
-                    foreach (int t in victim.Tris) if (_t[t].Any(chainVerts.Contains)) peelNext.Add(t);
-                    continue;
+                    var at = victim.Tris.Where(t => _t[t].Any(chainVerts.Contains)).ToList();
+                    if (!at.All(_noCurve.Contains)) { peelNext.UnionWith(at); continue; }
                 }
                 if (victim.Curved) Dbg("  dissolve " + Describe(victim, mid) + " at edge: " + ex.Message + ": " + Describe(ra, mid) + " / " + Describe(rb, mid));
                 retryCurves.UnionWith(victim.Tris);
@@ -1523,15 +1626,20 @@ public sealed class MeshToBrep
             }
             edges[e] = edges[e] with { Curve = curve };
         }
-        if (retryCurves.Count > 0 || absorbNext.Count > 0 || peelNext.Count > 0) throw new RetryException(retryCurves, curveProblem!, absorbNext, peelNext);
+        if (retry.Count > 0 || retryCurves.Count > 0 || absorbNext.Count > 0 || peelNext.Count > 0)
+            throw new RetryException(retry.Concat(retryCurves).ToHashSet(), firstProblem ?? curveProblem!, absorbNext, peelNext);
 
         // faces
         var faces = new List<BrepFace>();
         var boundaryOf = boundary.ToLookup(h => h.r);
+        // (surfaces that touch themselves in a vertex are all collected before the next round, not one per round)
+        var pinchRetry = new HashSet<int>(); var pinchAbsorb = new HashSet<int>(); var pinchPeel = new HashSet<int>();
+        string? pinchProblem = null;
         for (int ri = 0; ri < _regions.Count; ri++)
         {
             var reg = _regions[ri];
             var heOut = new Dictionary<int, int>();
+            bool pinched = false;
             foreach (var h in boundaryOf[ri])
                 if (!heOut.TryAdd(h.a, h.b))
                 {
@@ -1572,11 +1680,12 @@ public sealed class MeshToBrep
                         double tol = Math.Max(AbsorbTol(reg.IsTorus ? reg.Minor : reg.Radius), _opt.CylinderFitTolerance);
                         var gap = Enumerable.Range(0, _t.Count).Where(t => _t[t].Contains(h.a) && _regions[_regionOf[t]] is { Free: true, Fixed: false }
                             && !_absorb.Contains(t) && !_hintExclude.Contains(t) && !_keep.Contains(t) && _t[t].All(v => SurfaceDistance(reg, _v[v]) <= tol)).ToHashSet();
-                        if (gap.Count > 0) throw new RetryException(new HashSet<int>(), "pinched boundary of a fitted surface (facet taken in)", gap);
-                        if (!at.All(_noCurve.Contains)) throw new RetryException(new HashSet<int>(), "pinched boundary of a fitted surface (peeled)", peel: at);
+                        if (gap.Count > 0) { pinchAbsorb.UnionWith(gap); pinchProblem ??= "pinched boundary of a fitted surface (facet taken in)"; pinched = true; break; }
+                        if (!at.All(_noCurve.Contains)) { pinchPeel.UnionWith(at); pinchProblem ??= "pinched boundary of a fitted surface (peeled)"; pinched = true; break; }
                     }
-                    throw new RetryException(new HashSet<int>(reg.Tris), "pinched boundary of a fitted surface");
+                    pinchRetry.UnionWith(reg.Tris); pinchProblem ??= "pinched boundary of a fitted surface"; pinched = true; break;
                 }
+            if (pinched) continue;
             var used = new HashSet<int>();
             var loops = new List<IReadOnlyList<BrepCoedge>>();
             foreach (int s in heOut.Keys)
@@ -1633,6 +1742,7 @@ public sealed class MeshToBrep
             else surf = new BrepPlane(reg.N * reg.D, reg.N, Perp(reg.N));
             faces.Add(new BrepFace(surf, reg.Curved && reg.Hollow, loops));
         }
+        if (pinchRetry.Count > 0 || pinchAbsorb.Count > 0 || pinchPeel.Count > 0) throw new RetryException(pinchRetry, pinchProblem!, pinchAbsorb, pinchPeel);
         var body = new BrepBody { Vertices = finalPos, Edges = edges, Faces = faces };
         CheckOrientation(body);
         return body;
@@ -1649,11 +1759,20 @@ public sealed class MeshToBrep
         var absorb = new HashSet<int>();
         string? problem = null;
         int excluded = _hintExclude.Count;
+        var facesOfEdge = new Dictionary<int, List<int>>();
+        for (int fi = 0; fi < body.Faces.Count; fi++)
+            foreach (var ce in body.Faces[fi].Loops.SelectMany(l => l))
+            {
+                if (!facesOfEdge.TryGetValue(ce.Edge, out var l)) facesOfEdge[ce.Edge] = l = new();
+                l.Add(fi);
+            }
         for (int fi = 0; fi < body.Faces.Count; fi++)
         {
             var f = body.Faces[fi];
             var reg = _regions[fi];
-            int ccw = 0; bool wraps = false;
+            var ccwLoops = new List<(double area, List<int> edges)>();
+            int ccw = 0; bool wraps = false, bothWays = false;
+            var wrapU = new List<double>(); var wrapV = new List<double>();
             var polys = new List<(List<(double u, double v)> uv, List<int> edge)>();
             foreach (var loop in f.Loops)
             {
@@ -1661,9 +1780,19 @@ public sealed class MeshToBrep
                 foreach (var ce in loop) { var sp = SampleCoedge(body, ce); pts.AddRange(sp); edgeOf.AddRange(Enumerable.Repeat(ce.Edge, sp.Count)); }
                 var (area, turn, turnV) = ParamArea(f.Surface, pts, out var uv);
                 polys.Add((uv, edgeOf));
-                if (Math.Abs(turn) > Math.PI || Math.Abs(turnV) > Math.PI) wraps = true;
-                else if (area * (f.Reversed ? -1 : 1) > 0) ccw++;
+                if (Math.Abs(turn) > Math.PI || Math.Abs(turnV) > Math.PI)
+                {
+                    wraps = true;
+                    if (Math.Abs(turn) > Math.PI && Math.Abs(turnV) > Math.PI) bothWays = true;
+                    else (Math.Abs(turn) > Math.PI ? wrapU : wrapV).Add(Math.Abs(turn) > Math.PI ? turn : turnV);
+                }
+                else if (area * (f.Reversed ? -1 : 1) > 0) { ccw++; ccwLoops.Add((Math.Abs(area), loop.Select(ce => ce.Edge).ToList())); }
             }
+            // a band on a torus needs two rings around it in opposite directions and no other outer loop, as the validator
+            // demands: found here, the torus is dissolved next round; found by the validator, the whole shell became facets
+            // (voetstuk at 15 % with 50 um tolerances, after 34 rounds)
+            var ring = wrapU.Count > 0 ? wrapU : wrapV;
+            bool badBand = wraps && reg.IsTorus && (bothWays || (wrapU.Count > 0 && wrapV.Count > 0) || ring.Count != 2 || ccw > 0 || !(ring[0] * ring[1] < 0));
             // a boundary that crosses itself (a few micrometres, at a corner where the selection zigzags): DesignSpark then
             // fills the wrong side (yubikey: a cylinder face closing a slot)
             // (checked on the user's groups: where the rest is still mesh, their boundaries zigzag through loose facets;
@@ -1701,10 +1830,24 @@ public sealed class MeshToBrep
                 Dbg($"  sphere face {fi}: {left * 1e6:0.###} mm2 left of its loops, facets {mesh * 1e6:0.###} mm2");
                 ccw = 0;
             }
-            else if (wraps || ccw == 1 || (f.Loops.Count == 0 && (reg.IsSphere || reg.IsTorus))) continue;
+            else if ((wraps && !badBand) || (ccw == 1 && !badBand) || (f.Loops.Count == 0 && (reg.IsSphere || reg.IsTorus))) continue;
             if (!reg.Free && reg.IsTorus) Dbg($"  dissolve {Describe(reg, body.Vertices.Count > 0 ? body.Vertices[0] : reg.Origin)}: {ccw} of {f.Loops.Count} loops counter-clockwise");
             problem ??= $"face {fi} ({(reg.IsCylinder ? "cylinder" : reg.IsSphere ? "sphere" : reg.IsTorus ? "torus" : reg.Free ? "single facet" : "plane")}, {reg.Tris.Count} facets): {ccw} of {f.Loops.Count} loops counter-clockwise";
+            if (Debug && !reg.Free && reg.Tris.Count >= 200 && !wraps && ccw != 1)
+                foreach (var (a, es) in ccwLoops.OrderByDescending(l => l.area))
+                    Console.Error.WriteLine(FormattableString.Invariant($"[big] face {fi} ({reg.Tris.Count} facets) counter-clockwise loop: area {a * 1e6:0.###} mm2, {es.Count} edges, along: ")
+                        + string.Join(", ", es.SelectMany(e => facesOfEdge[e]).Where(o => o != fi).Distinct().Select(o => _regions[o]).GroupBy(o => o.Free ? "facet" : o.IsCylinder ? "cylinder" : o.IsTorus ? "torus" : o.IsCone ? "cone" : o.IsSphere ? "sphere" : "plane").Select(g => $"{g.Count()} {g.Key}")));
             if (reg.Fixed && !reg.Soft) { problem = $"group face {fi}: {ccw} of {f.Loops.Count} loops counter-clockwise (the group's surface does not fit)"; }
+            else if (!reg.Free && !reg.Curved && reg.Tris.Count > _opt.PeelThreshold && ccw > 1
+                && ccwLoops.OrderByDescending(l => l.area).Skip(1).SelectMany(l => l.edges).SelectMany(e => facesOfEdge[e]).Where(o => o != fi)
+                    .Distinct().Select(o => _regions[o]).Where(o => !o.Free && (!o.Fixed || o.Soft)).ToList() is { Count: > 0 } along)
+            {
+                // A large plane is reliable; its holes run the wrong way because of the surfaces along them: those go,
+                // not the plane (voetstuk: the base plate of 1356 facets became facets, and stayed so, for two of its six
+                // holes)
+                Dbg($"  face {fi} (plane, {reg.Tris.Count} facets): {ccw} of {f.Loops.Count} loops counter-clockwise; dissolving the {along.Count} surfaces along them");
+                foreach (var o in along) retry.UnionWith(o.Tris);
+            }
             else if (!reg.Free) retry.UnionWith(reg.Tris);
             else if (!_absorb.Contains(reg.Tris[0]) && Enumerable.Range(0, 3).Select(k => _regions[_regionOf[Across(reg.Tris[0], k)]])
                 .Any(c => c.Curved && _t[reg.Tris[0]].All(v => SurfaceDistance(c, _v[v]) <= Math.Max(AbsorbTol(c.IsTorus ? c.Minor : c.Radius), _opt.CylinderFitTolerance))))
@@ -1724,12 +1867,12 @@ public sealed class MeshToBrep
                         + string.Join(", ", tv.Select(v => SurfaceDistance(victim, _v[v]).ToString("E1", CultureInfo.InvariantCulture)))
                         + "; neighbours: " + string.Join(" | ", reg.Tris.SelectMany(t => Enumerable.Range(0, 3).Select(k => _regions[_regionOf[Across(t, k)]])).Select(nb => Describe(nb, _v[tv[0]]))));
                 }
-                if (victim != null && victim.Curved && !victim.IsTorus && victim.Tris.Count > _opt.PeelThreshold)
-                {
-                    // peel the large curved neighbour around this facet instead of giving it up
-                    var corners = new HashSet<int>(_t[reg.Tris[0]]);
-                    foreach (int t in victim.Tris) if (_t[t].Any(corners.Contains)) peel.Add(t);
-                }
+                var corners = new HashSet<int>(_t[reg.Tris[0]]);
+                var around = victim == null ? [] : victim.Tris.Where(t => _t[t].Any(corners.Contains)).ToList();
+                // peel the large curved neighbour around this facet instead of giving it up (unless those facets were
+                // peeled before and taken in again: peeling once more would change nothing)
+                if (victim != null && victim.Curved && !victim.IsTorus && victim.Tris.Count > _opt.PeelThreshold && !around.All(_noCurve.Contains))
+                    peel.UnionWith(around);
                 else if (victim != null)
                 {
                     if (victim.Curved) Dbg("  dissolve " + Describe(victim, _v[_t[reg.Tris[0]][0]]) + " for a flipped facet");
@@ -2419,7 +2562,7 @@ public sealed class MeshToBrep
             var pts = Pts(cluster);
             // (gives up early on a patch that clearly is no torus: 10x the fit tolerance and no longer improving)
             bool fitOk = TorusFit.Fit(pts, Lines(cluster), out var tor, out double res, giveUpRms: 10 * fitTol);
-            if (!fitOk || res > fitTol || tor.R > _opt.MaxCurvedRadius
+            if (!fitOk || res > fitTol || tor.R > _opt.MaxCurvedRadius || tor.r < _opt.MinCurvedRadius
                 // points that also fit a sphere belong to the sphere finder (a torus patch near the sphere limit)
                 || (FitSphere(pts, out _, out _, out double sres) && sres <= fitTol))
             { _cache.NoTorus.TryAdd(key, 0); continue; }
@@ -3244,6 +3387,9 @@ public sealed class MeshToBrep
                 for (int i = 0; i < 3; i++) d[i] += c * u[i, k];
             }
             x = new Vec3(x.X + d[0], x.Y + d[1], x.Z + d[2]);
+            // (no further to go: surfaces that cannot all be met, such as more planes at a vertex than it can lie on,
+            // ran all 30 steps, a third of recognition on voetstuk after sharpening)
+            if (Math.Abs(d[0]) + Math.Abs(d[1]) + Math.Abs(d[2]) < 1e-16) break;
         }
         double res = surfaces.Max(s => Math.Abs(Res(s, x, out _)));
         return double.IsFinite(res) && double.IsFinite(x.X + x.Y + x.Z) ? (x, res) : (x0, double.PositiveInfinity);

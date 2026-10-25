@@ -56,7 +56,12 @@
                   <ToggleButton x:Name="ManifoldBox" Classes="chip" IsChecked="True" Content="🧩  non-manifold"
                                 ToolTip.Tip="Dubbele driehoekjes en driehoekjes op een rand die al twee buren heeft weghalen (het gat dat dat geeft wordt gedicht)."/>
                   <ToggleButton x:Name="PiecesBox" Classes="chip" IsChecked="True" Content="✂️  snippers weg" ToolTip.Tip="Losse stukjes kleiner dan 1 % van het grootste stuk weghalen."/>
+                  <ToggleButton x:Name="SharpBox" Classes="chip" IsChecked="True" Content="📐  afrondingen scherp"
+                                ToolTip.Tip="Kleine afrondingen en afschuiningen tussen twee vlakken worden een scherpe rand (voor een FDM-printer zijn ze te klein om te printen). Gaten en pennen blijven."/>
                 </WrapPanel>
+                <Grid IsVisible="{Binding #SharpBox.IsChecked}"><TextBlock Text="Scherp maken tot" Classes="label"/><TextBlock x:Name="SharpText" Classes="value"/></Grid>
+                <Slider x:Name="SharpSlider" Minimum="0.2" Maximum="3" Value="2" IsVisible="{Binding #SharpBox.IsChecked}"
+                        ToolTip.Tip="Afrondingen met een kleinere straal worden scherp"/>
                 <Grid><TextBlock Text="Vereenvoudigen tot" Classes="label"/><TextBlock x:Name="SimplifyText" Classes="value"/></Grid>
                 <Slider x:Name="SimplifySlider" Minimum="1" Maximum="100" Value="100" IsSnapToTickEnabled="True" TickFrequency="1"
                         ToolTip.Tip="Minder driehoekjes (voor heel grote meshes). De hoekpunten blijven originele punten. Let op: te ver vereenvoudigen maakt rondingen moeilijker te herkennen."/>
@@ -114,7 +119,7 @@
                         ToolTip.Tip="Dubbelklik selecteert de aansluitende driehoekjes waarvan de helling hooguit zoveel graden afwijkt van het aangeklikte driehoekje. 0° = alleen het platte vlak; voor een ronding bijvoorbeeld 45° of 90°."/>
               </StackPanel>
               <TextBlock TextWrapping="Wrap" Foreground="{StaticResource Muted}" FontSize="11.5"
-                         Text="Dubbelklik = erbij selecteren · Ctrl = weghalen · Shift-klik = herkend vlak · Shift-dubbelklik = vlak openen (driehoekjes aanklikken) · Esc = wissen"/>
+                         Text="Dubbelklik = erbij selecteren · Ctrl = weghalen · Shift-klik = herkend vlak · Shift-dubbelklik = vlak openen (driehoekjes aanklikken) · Esc = wissen · Ctrl+Z = vorige selectie"/>
               <StackPanel x:Name="GroupList" Margin="0,6,0,0"/>
             </StackPanel>
           </Border>
@@ -219,6 +224,7 @@
                         ToolTip.Tip="Koppel deze driehoekjes los van het vlak: ze blijven losse driehoekjes (en blijven geselecteerd, zodat je ze met ➕ bij een ander vlak kunt voegen)"/>
                 <Button x:Name="AddToButton" Content="➕  bij vlak" Classes="pill primary" Padding="12,6" ToolTip.Tip="Voeg deze driehoekjes toe aan een ander herkend vlak: klik daarna op dat vlak"/>
               </WrapPanel>
+              <Button x:Name="UndoSelectionButton" Content="↶" Classes="pill" Padding="12,6" IsEnabled="False" ToolTip.Tip="Vorige selectie: de laatste klik, dubbelklik of penseelstreek terug (Ctrl+Z)"/>
               <Button x:Name="ClearSelectionButton" Content="✖" Classes="pill" Padding="12,6" ToolTip.Tip="Selectie wissen (Esc)"/>
             </WrapPanel>
             <StackPanel x:Name="MeasureRow" Orientation="Horizontal" Margin="4,0,0,6">

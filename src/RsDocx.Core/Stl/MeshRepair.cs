@@ -21,11 +21,15 @@ public sealed record MeshRepairOptions
 
     /// <summary>Corners closer than this are one vertex.</summary>
     public double WeldTolerance { get; init; } = 1e-4;
+
+    /// <summary>Roundings (fillets, chamfers) narrower than this become sharp edges, first of all (see
+    /// <see cref="SharpenFillets"/>; 0 = keep them).</summary>
+    public double SharpenBelow { get; init; }
 }
 
 public sealed class MeshRepairStats
 {
-    public int InputTriangles, DegenerateRemoved, DuplicatesRemoved, NonManifoldRemoved, PiecesRemoved, PieceTrianglesRemoved,
+    public int Sharpened, SharpCollapsed, InputTriangles, DegenerateRemoved, DuplicatesRemoved, NonManifoldRemoved, PiecesRemoved, PieceTrianglesRemoved,
         HolesFilled, FillTriangles, HolesLeft, BowtiesSplit, FlatFixed, FlatLeft, FoldsRemoved, FoldsLeft, TwistsRemoved, OutputTriangles;
 
     /// <summary>Diagnostics: vertices that share their position with another one, after each step.</summary>
@@ -38,7 +42,7 @@ public sealed class MeshRepairStats
     public int OpenEdges;
 
     public override string ToString() => string.Create(CultureInfo.InvariantCulture,
-        $"{InputTriangles} triangles in, {DegenerateRemoved} degenerate, {DuplicatesRemoved} duplicates and {NonManifoldRemoved} non-manifold removed, " +
+        $"{(Sharpened > 0 ? $"{Sharpened} vertices of small roundings moved onto sharp edges ({SharpCollapsed} edges collapsed), " : "")}{InputTriangles} triangles in, {DegenerateRemoved} degenerate, {DuplicatesRemoved} duplicates and {NonManifoldRemoved} non-manifold removed, " +
         $"{PiecesRemoved} small pieces ({PieceTrianglesRemoved} triangles) removed, {HolesFilled} holes filled ({FillTriangles} triangles), " +
         $"{HolesLeft} holes left, {TwistsRemoved} twisted triangles removed, {BowtiesSplit} bowtie vertices split, {FoldsRemoved} folded triangles removed ({string.Join("/", FoldRounds)}; {FoldsLeft} folded edges left), {FlatFixed} flat triangles flipped away ({FlatLeft} left), {OutputTriangles} triangles out, {OpenEdges} open edges");
 }
@@ -55,6 +59,7 @@ public static class MeshRepair
     {
         stats = new MeshRepairStats { InputTriangles = stl.Triangles.Count };
         var mesh = Build(stl, opt, stats);
+        if (opt.SharpenBelow > 0) Sharpen(mesh, opt.SharpenBelow, stats);
 
         var st = stats; // (an out parameter cannot be used in a local function)
         void Dup(string step)
@@ -143,6 +148,16 @@ public static class MeshRepair
         }
         stats.FlatLeft = mesh.TriangleIndices().Count(t => Flat(mesh, t, opt.WeldTolerance) >= 0);
 
+        // a piece of fewer than four triangles encloses nothing (a flap of two left where sharpening collapsed a
+        // rounding: voetstuk at 2 mm), and the converter refuses the whole mesh for it
+        var pieces = new MeshConnectedComponents(mesh);
+        pieces.FindConnectedT();
+        foreach (var piece in pieces.Components.Where(c => c.Indices.Length < 4))
+        {
+            MeshEditor.RemoveTriangles(mesh, piece.Indices.ToList(), true);
+            stats.PiecesRemoved++; stats.PieceTrianglesRemoved += piece.Indices.Length;
+        }
+
         stats.OpenEdges = mesh.EdgeIndices().Count(mesh.IsBoundaryEdge);
         var tris = new List<StlTriangle>(mesh.TriangleCount);
         foreach (int t in mesh.TriangleIndices())
@@ -228,7 +243,42 @@ public static class MeshRepair
     /// flip gives a new flat triangle) the middle vertex is collapsed onto the nearer end of the long edge: it lies on that
     /// line, so the shape does not change.
     /// </summary>
-    private static void FixFlat(DMesh3 mesh, double tol, MeshRepairStats stats)
+    /// <summary>
+    /// Small roundings become sharp edges (<see cref="SharpenFillets"/>): their vertices move onto the edge, then the edges
+    /// that became (almost) zero long are collapsed, so the mesh stays one closed surface; the flat triangles left along
+    /// the edge go in <see cref="FixFlat"/>. (Moving alone and dropping what collapsed left 10000 holes in voetstuk.)
+    /// </summary>
+    private static void Sharpen(DMesh3 mesh, double maxSize, MeshRepairStats stats)
+    {
+        var verts = new Vec3[mesh.MaxVertexID];
+        foreach (int v in mesh.VertexIndices()) verts[v] = V(mesh.GetVertex(v));
+        var tris = mesh.TriangleIndices().Select(t => { var tv = mesh.GetTriangle(t); return new[] { tv.a, tv.b, tv.c }; }).ToList();
+        var target = SharpenFillets.Targets(verts, tris, maxSize);
+        for (int v = 0; v < target.Length; v++)
+            if (target[v] is Vec3 p) { mesh.SetVertex(v, new Vector3d(p.X, p.Y, p.Z)); stats.Sharpened++; }
+        // (the points of one cross-section of a rounding land close together on its edge, not exactly on one point)
+        double shortEdge = maxSize * 0.1;
+        for (int pass = 0; pass < 10; pass++)
+        {
+            int collapsed = 0;
+            foreach (int e in mesh.EdgeIndices().ToList())
+            {
+                if (!mesh.IsEdge(e)) continue;
+                var ev = mesh.GetEdgeV(e);
+                if ((target[ev.a] == null && target[ev.b] == null) || mesh.GetVertex(ev.a).Distance(mesh.GetVertex(ev.b)) > shortEdge) continue;
+                if (mesh.CollapseEdge(ev.a, ev.b, out _) == MeshResult.Ok) collapsed++;
+            }
+            stats.SharpCollapsed += collapsed;
+            if (collapsed == 0) break;
+        }
+        // facets left as needles on the new edge (lower than 5 % of the limit; the safeguard lets them pass as collapsed):
+        // flipped or collapsed like flat ones, but only round the moved vertices. Left alone, they folded onto their
+        // neighbours, the fill made them again and again, and tiny islands of them inside a face made recognition give
+        // up the whole face (voetstuk's base plate, for loops of 0.001 mm2)
+        FixFlat(mesh, 0.05 * maxSize, stats, t => { var tv = mesh.GetTriangle(t); return target[tv.a] != null || target[tv.b] != null || target[tv.c] != null; });
+    }
+
+    private static void FixFlat(DMesh3 mesh, double tol, MeshRepairStats stats, Func<int, bool>? only = null)
     {
         static double Height(Vector3d a, Vector3d b, Vector3d c)
         {
@@ -240,7 +290,7 @@ public static class MeshRepair
             int changed = 0;
             foreach (int t in mesh.TriangleIndices().ToList())
             {
-                if (!mesh.IsTriangle(t)) continue;
+                if (!mesh.IsTriangle(t) || (only != null && !only(t))) continue;
                 int e = Flat(mesh, t, tol);
                 if (e < 0) continue;
                 var ev = mesh.GetEdgeV(e);

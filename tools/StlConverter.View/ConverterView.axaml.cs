@@ -72,6 +72,10 @@ public partial class ConverterView : UserControl
     private KeyModifiers _mods;
 
     private readonly HashSet<int> _selection = new();
+    /// <summary>The selection before each selection step (newest last), for Ctrl+Z / ↶; a step that changes nothing is not kept.</summary>
+    private readonly List<HashSet<int>> _selectionSteps = new();
+    /// <summary>The selection when the step now under way began (a brush stroke lasts from button down to button up).</summary>
+    private HashSet<int>? _stepStart;
     private readonly List<(List<int> tris, FaceKind kind)> _groups = new();
 
     /// <summary>Groups made flat on purpose ("📐 plat"): their vertices are moved onto the plane however far they are off.</summary>
@@ -160,6 +164,7 @@ public partial class ConverterView : UserControl
     {
         _mods = e.KeyModifiers;
         if (e.Key == Key.D && e.KeyModifiers == (KeyModifiers.Control | KeyModifiers.Shift)) { DumpGroups(); return; }
+        if (e.Key == Key.Z && e.KeyModifiers == KeyModifiers.Control && !_painting) { if (UndoSelection()) e.Handled = true; return; }
         if (e.Key != Key.Escape) return;
         if (_addPick) { _addPick = false; RebuildOverlay(); }
         else if (_selection.Count > 0) ClearSelection();
@@ -181,13 +186,14 @@ public partial class ConverterView : UserControl
         EdgesBox.Click += Edges_Click;
         foreach (var b in ViewChips.Children.OfType<Button>()) b.Click += ViewButton_Click;
         foreach (var b in ShapeButtons.Children.OfType<Button>().Concat(OpenFaceButtons.Children.OfType<Button>()).Where(b => b.Tag is string)) b.Click += MakeGroup_Click;
-        AddToButton.Click += AddTo_Click; ClearSelectionButton.Click += ClearSelection_Click;
+        AddToButton.Click += AddTo_Click; ClearSelectionButton.Click += ClearSelection_Click; UndoSelectionButton.Click += UndoSelection_Click;
         ThreadButton.Click += Thread_Click; CloseThreadButton.Click += CloseThread_Click; ReplaceThreadButton.Click += ReplaceThread_Click;
         OpenFaceButton.Click += OpenPickedFace_Click; CloseFaceButton.Click += CloseFace_Click;
         SelectOpenFaceButton.Click += SelectOpenFace_Click; DeselectOpenFaceButton.Click += DeselectOpenFace_Click;
         foreach (var sl in new[] { AngleSlider, FitSlider, JoinSlider, TangentSlider, RadiusSlider, RoundsSlider, BrushSlider, WandSlider, DoubleSlider })
             sl.ValueChanged += (_, _) => UpdateSliderTexts();
         SimplifySlider.ValueChanged += (_, _) => SimplifySlider_Changed();
+        SharpSlider.ValueChanged += (_, _) => UpdateSliderTexts();
         UnitBox.SelectionChanged += (_, _) => UpdateSliderTexts();
         // the left button selects (the view itself turns, pans and zooms with the others)
         View.PointerPressed += (_, e) =>
@@ -213,7 +219,7 @@ public partial class ConverterView : UserControl
 
     private void UpdateSliderTexts()
     {
-        if (AngleText == null || RoundsText == null || BrushText == null || WandText == null || DoubleText == null) return;
+        if (AngleText == null || RoundsText == null || BrushText == null || WandText == null || DoubleText == null || SharpText == null) return;
         var c = CultureInfo.CurrentCulture;
         AngleText.Text = string.Format(c, "{0:0.####}°", AngleDeg);
         FitText.Text = string.Format(c, "{0:0.###} µm", FitMicron);
@@ -224,6 +230,7 @@ public partial class ConverterView : UserControl
         BrushText.Text = BrushSlider.Value < 0.05 ? T("1 driehoekje", "1 triangle") : string.Format(c, "{0:0.0} {1}", BrushSlider.Value, UnitName);
         WandText.Text = string.Format(c, "{0:0}°", WandSlider.Value);
         DoubleText.Text = DoubleSlider.Value < 0.5 ? T("0° · alleen vlak", "0° · flat only") : string.Format(c, "{0:0}°", DoubleSlider.Value);
+        SharpText.Text = string.Format(c, "{0:0.0} mm", SharpSlider.Value);
     }
 
     private string UnitName => (string)((ComboBoxItem)UnitBox.SelectedItem!).Content!;
@@ -248,6 +255,8 @@ public partial class ConverterView : UserControl
         AbsorbTolerance = JoinMicron * 1e-6,
         TangentToleranceDeg = TangentSlider.Value,
         MaxCurvedRadius = MaxRadiusMm / 1000,
+        // (what is to be made sharp need not be recognised as a rounding either: it stays facets)
+        MinCurvedRadius = SharpBox.IsChecked == true ? SharpSlider.Value / 1000 : 0,
         RecognitionRounds = (int)RoundsSlider.Value,
         Hints = BuildHints(),
         KeepFacets = _looseGroups.Count == 0 ? null : _looseGroups.SelectMany(t => t).ToHashSet(),
@@ -441,10 +450,18 @@ public partial class ConverterView : UserControl
             {
                 if (Environment.GetEnvironmentVariable("RSUI_DOUBLEDEG") is { Length: > 0 } deg) DoubleSlider.Value = double.Parse(deg, CultureInfo.InvariantCulture);
                 AutoDoubleBox.IsChecked = Environment.GetEnvironmentVariable("RSUI_AUTODOUBLE") == "1";
-                var (tris, flat) = DoubleClickPatch(int.Parse(dc));
-                _selection.UnionWith(tris);
+                // (several, comma-separated, each a step; RSUI_UNDOSEL=n then undoes n of them)
+                var report = new List<string>();
+                foreach (var one in dc.Split(','))
+                {
+                    var (tris, flat) = DoubleClickPatch(int.Parse(one));
+                    BeginStep(); _selection.UnionWith(tris); EndStep();
+                    report.Add($"double click {one}: {tris.Count} {(flat ? "flat" : "curved")}, selection {_selection.Count}");
+                }
+                if (int.TryParse(Environment.GetEnvironmentVariable("RSUI_UNDOSEL"), out int undos))
+                    for (int u = 0; u < undos; u++) report.Add($"undo: {(UndoSelection() ? "" : "nothing to undo, ")}selection {_selection.Count}");
                 RebuildOverlay();
-                File.WriteAllText(shot + ".txt", $"{tris.Count} {(flat ? "flat" : "curved")}");
+                File.WriteAllText(shot + ".txt", string.Join(Environment.NewLine, report));
                 _ = Snapshot(shot);
                 return;
             }
@@ -470,6 +487,11 @@ public partial class ConverterView : UserControl
                 if (Environment.GetEnvironmentVariable("RSUI_CLEAN") == "1")
                 {
                     if (Environment.GetEnvironmentVariable("RSUI_SIMPLIFY") is { Length: > 0 } pct) SimplifySlider.Value = double.Parse(pct, CultureInfo.InvariantCulture);
+                    if (Environment.GetEnvironmentVariable("RSUI_SHARPEN") is { Length: > 0 } mm)
+                    {
+                        SharpBox.IsChecked = mm != "0";
+                        if (mm != "0") SharpSlider.Value = double.Parse(mm, CultureInfo.InvariantCulture);
+                    }
                     var sw = Stopwatch.StartNew();
                     await Clean();
                     log.AppendLine($"🧹 {sw.ElapsedMilliseconds} ms: {StatusText.Text} | {ToastTitle.Text} {ToastText.Text}");
@@ -657,6 +679,7 @@ public partial class ConverterView : UserControl
     private void ShowNewMesh()
     {
         _bodies = null; _labels = null; _softCount = 0; _fullMode = false; _planeMode = false; _changed = null; _free = null; _legendFilter = null;
+        _selectionSteps.Clear(); _stepStart = null; UndoSelectionButton.IsEnabled = false;
         _selection.Clear(); _groups.Clear(); _forcedGroups.Clear(); _looseGroups.Clear(); _hintGroups.Clear(); _repaired.Clear();
         _addPick = false; CloseFace(); ThreadCard.IsVisible = false; _thread = null;
         _extraBodies.Clear(); View.Coil = []; _coilMeshes.Clear(); _threadFilter = false;
@@ -723,6 +746,8 @@ public partial class ConverterView : UserControl
             FillHoles = HoleBox.IsChecked == true, FixNonManifold = ManifoldBox.IsChecked == true,
             SmallPieceFraction = PiecesBox.IsChecked == true ? 0.01 : 0, TargetTriangles = SimplifyTarget(),
             WeldTolerance = mo.WeldTolerance / mo.Scale,
+            // (the slider in mm, the repair in the file's units)
+            SharpenBelow = SharpBox.IsChecked == true ? SharpSlider.Value / 1000 / mo.Scale : 0,
         };
         var before = _stl;
         OpenButton.IsEnabled = RecognizeButton.IsEnabled = SaveButton.IsEnabled = CleanButton.IsEnabled = false;
@@ -757,6 +782,7 @@ public partial class ConverterView : UserControl
                 st.DuplicatesRemoved > 0 ? T($"{st.DuplicatesRemoved} dubbele driehoekjes weg", $"{st.DuplicatesRemoved} duplicate triangles removed") : null,
                 st.NonManifoldRemoved > 0 ? T($"{st.NonManifoldRemoved} non-manifold driehoekjes weg", $"{st.NonManifoldRemoved} non-manifold triangles removed") : null,
                 st.PiecesRemoved > 0 ? T($"{st.PiecesRemoved} {(st.PiecesRemoved == 1 ? "snipper" : "snippers")} weg", $"{st.PiecesRemoved} {(st.PiecesRemoved == 1 ? "scrap" : "scraps")} removed") : null,
+                st.Sharpened > 0 ? T($"{st.Sharpened:N0} punten van kleine afrondingen op scherpe randen", $"{st.Sharpened:N0} points of small roundings onto sharp edges") : null,
                 st.FlatFixed > 0 ? T($"{st.FlatFixed} platte driehoekjes rechtgezet", $"{st.FlatFixed} flat triangles straightened") : null,
                 opt.TargetTriangles > 0 ? T($"vereenvoudigd {st.InputTriangles:N0} → {st.OutputTriangles:N0}", $"simplified {st.InputTriangles:N0} → {st.OutputTriangles:N0}") : null,
             }.Where(x => x != null));
@@ -1556,6 +1582,7 @@ public partial class ConverterView : UserControl
         // in an opened face a click picks single triangles (a quick second click too, it is not a double click)
         if (_openTris.Count > 0 && !shift && SourceAt(pos, out var atOpen) is int inFace && _openTris.Contains(inFace))
         {
+            BeginStep();
             if (ModeBrush.IsChecked == true)
             {
                 _painting = true;
@@ -1565,6 +1592,7 @@ public partial class ConverterView : UserControl
             else
             {
                 if (Removing || _selection.Contains(inFace)) _selection.Remove(inFace); else _selection.Add(inFace);
+                EndStep();
                 RebuildOverlay();
             }
             e.Handled = true;
@@ -1576,8 +1604,13 @@ public partial class ConverterView : UserControl
             if (seed == null) return;
             // Shift-double click on a recognised face: open it (its triangles shown, to pick from); the first click (a
             // Shift-click selects the whole face) is undone, and so is the one that comes with this button-up
+            // (one step with its first click: Ctrl+Z goes back to before both)
+            if (_beforeClick != null && _selectionSteps.Count > 0 && _selectionSteps[^1].SetEquals(_beforeClick)) _selectionSteps.RemoveAt(_selectionSteps.Count - 1);
+            _stepStart = _beforeClick != null ? new HashSet<int>(_beforeClick) : null;
             if (shift && InfoOf(seed.Value) is { Kind: not FaceKind.Facet })
             {
+                _stepStart = null;
+                UndoSelectionButton.IsEnabled = _selectionSteps.Count > 0;
                 if (_beforeClick != null) { _selection.Clear(); _selection.UnionWith(_beforeClick); }
                 OpenFace(seed.Value);
                 _skipUp = true;
@@ -1586,7 +1619,9 @@ public partial class ConverterView : UserControl
             }
             // a flat face; on a curved surface (only a strip is flat) the smooth patch around it
             var (patch, flat) = DoubleClickPatch(seed.Value);
+            BeginStep();
             if (Removing) _selection.ExceptWith(patch); else _selection.UnionWith(patch);
+            EndStep();
             RebuildOverlay();
             ShowToast(flat ? T($"🪄 {patch.Count:N0} driehoekjes in hetzelfde vlak geselecteerd", $"🪄 {patch.Count:N0} triangles in the same plane selected")
                 : AutoDoubleBox.IsChecked == true ? T($"🪄 {patch.Count:N0} driehoekjes van dit gebogen stuk geselecteerd", $"🪄 {patch.Count:N0} triangles of this curved piece selected") : T($"🪄 {patch.Count:N0} driehoekjes geselecteerd (helling tot {DoubleSlider.Value:0}° anders)", $"🪄 {patch.Count:N0} triangles selected (slope up to {DoubleSlider.Value:0}° different)"),
@@ -1598,13 +1633,14 @@ public partial class ConverterView : UserControl
         if (ModeView.IsChecked == true || shift) return;
         var src = SourceAt(pos, out var at);
         if (src == null) return;
+        BeginStep();
         if (ModeBrush.IsChecked == true)
         {
             _painting = true;
             _paintPointer = e.Pointer; e.Pointer.Capture(View);
             Paint(src.Value, at);
         }
-        else Wand(src.Value);
+        else { Wand(src.Value); EndStep(); }
         e.Handled = true;
     }
 
@@ -1619,6 +1655,7 @@ public partial class ConverterView : UserControl
     private void StopPainting()
     {
         _painting = false;
+        EndStep();
         _paintPointer?.Capture(null); _paintPointer = null;
     }
 
@@ -1632,10 +1669,12 @@ public partial class ConverterView : UserControl
         if ((_mods & KeyModifiers.Shift) != 0)
         {
             // the whole recognised face (or a smooth patch before recognition)
-            if (InfoOf(src.Value) == null) { Wand(src.Value); return; }
+            BeginStep();
+            if (InfoOf(src.Value) == null) { Wand(src.Value); EndStep(); return; }
             var face = _faceOf[src.Value];
             var tris = Enumerable.Range(0, _faceOf.Length).Where(i => _faceOf[i] == face);
             if (Removing) _selection.ExceptWith(tris); else _selection.UnionWith(tris);
+            EndStep();
             RebuildOverlay();
             return;
         }
@@ -1781,8 +1820,38 @@ public partial class ConverterView : UserControl
     private void ClearSelection()
     {
         if (_selection.Count == 0) return;
+        BeginStep();
         _selection.Clear();
+        EndStep();
         RebuildOverlay();
+    }
+
+    private void BeginStep() => _stepStart ??= new HashSet<int>(_selection);
+
+    private void EndStep()
+    {
+        if (_stepStart == null) return;
+        if (!_stepStart.SetEquals(_selection))
+        {
+            _selectionSteps.Add(_stepStart);
+            if (_selectionSteps.Count > 200) _selectionSteps.RemoveAt(0);
+        }
+        _stepStart = null;
+        UndoSelectionButton.IsEnabled = _selectionSteps.Count > 0;
+    }
+
+    private void UndoSelection_Click(object? sender, RoutedEventArgs e) => UndoSelection();
+
+    /// <summary>Ctrl+Z / ↶: the selection as it was before the last selection step.</summary>
+    private bool UndoSelection()
+    {
+        if (_selectionSteps.Count == 0) return false;
+        _selection.Clear();
+        _selection.UnionWith(_selectionSteps[^1]);
+        _selectionSteps.RemoveAt(_selectionSteps.Count - 1);
+        UndoSelectionButton.IsEnabled = _selectionSteps.Count > 0;
+        RebuildOverlay();
+        return true;
     }
 
     private void MakeGroup_Click(object? sender, RoutedEventArgs e)

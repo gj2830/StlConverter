@@ -6,8 +6,9 @@ using RsDocx.Core.Stl;
 
 CultureInfo.CurrentCulture = CultureInfo.InvariantCulture;
 var positional = new List<string>();
-bool merge = false, cylinders = false, spheres = false, tori = false, cones = false, repair = false;
+bool merge = false, fullRounds = false, planes = false, cylinders = false, spheres = false, tori = false, cones = false, repair = false;
 int simplify = 0;
+double sharpenMm = 0, minRadiusMm = 0;
 string? repairedStl = null;
 double scale = 0.001, angleTol = 0.01, distTolMm = 1e-4, weldMm = 1e-4;
 double? fitUm = null, joinUm = null;
@@ -18,6 +19,7 @@ try
         switch (args[i])
         {
             case "--merge-coplanar": merge = true; break;
+            case "--planes": planes = true; merge = true; break;
             case "--cylinders": cylinders = true; merge = true; break;
             case "--spheres": spheres = true; merge = true; break;
             case "--tori": tori = true; merge = true; break;
@@ -30,6 +32,9 @@ try
             case "--dist-tol": distTolMm = Num(args[++i]); break;
             case "--weld": weldMm = Num(args[++i]); break;
             case "--repair": repair = true; break;
+            case "--full-rounds": fullRounds = true; break;
+            case "--min-radius": minRadiusMm = Num(args[++i]); break;
+            case "--sharpen": sharpenMm = Num(args[++i]); repair = true; break;
             case "--simplify": simplify = int.Parse(args[++i], CultureInfo.InvariantCulture); repair = true; break;
             case "--repaired-stl": repairedStl = args[++i]; repair = true; break;
             case "-h" or "--help": Usage(); return 0;
@@ -55,19 +60,21 @@ try
     if (repair)
     {
         var sw = System.Diagnostics.Stopwatch.StartNew();
-        stl = MeshRepair.Repair(stl, new MeshRepairOptions { TargetTriangles = simplify, WeldTolerance = weldMm / 1000 / scale }, out var rs);
+        stl = MeshRepair.Repair(stl, new MeshRepairOptions { TargetTriangles = simplify, WeldTolerance = weldMm / 1000 / scale, SharpenBelow = sharpenMm / 1000 / scale }, out var rs);
         Console.WriteLine($"repair ({sw.ElapsedMilliseconds} ms): {rs}");
         if (repairedStl != null) { File.WriteAllBytes(repairedStl, StlWriter.WriteBinary(stl.Triangles, "repaired by stl2rsdocx")); Console.WriteLine($"written {repairedStl}"); }
     }
     var opt = new MeshOptions
     {
         Scale = scale, MergeCoplanar = merge, AngleToleranceDeg = angleTol, DistanceTolerance = distTolMm / 1000,
-        WeldTolerance = weldMm / 1000, RecognizeCylinders = cylinders, RecognizeSpheres = spheres, RecognizeTori = tori, RecognizeCones = cones,
+        WeldTolerance = weldMm / 1000, RecognizeCylinders = cylinders, RecognizeSpheres = spheres, RecognizeTori = tori, RecognizeCones = cones, RecognizePlanes = planes, MinCurvedRadius = minRadiusMm / 1000, LocalRounds = !fullRounds,
     };
     // (as the app's "fit" and "join" sliders, in micrometres)
     if (fitUm is double fu) opt = opt with { CylinderFitTolerance = fu * 1e-6 };
     if (joinUm is double ju) opt = opt with { CylinderJoinTolerance = ju * 1e-6, AbsorbTolerance = ju * 1e-6 };
+    var convertSw = System.Diagnostics.Stopwatch.StartNew();
     var bodies = MeshConverter.ConvertToBrep(stl, opt, out var stats);
+    Console.WriteLine($"convert ({convertSw.ElapsedMilliseconds} ms, recognition {stats.RecognitionMs} ms, validation {stats.ValidationMs} ms)");
     Console.WriteLine(stats);
     foreach (var w in stats.Warnings) Console.WriteLine("warning: " + w);
     // (.step or .stp: STEP, for any CAD program; otherwise DesignSpark's .rsdocx)
@@ -89,6 +96,7 @@ static double Num(string s) => double.Parse(s, NumberStyles.Float, CultureInfo.I
 static void Usage() => Console.Error.WriteLine("""
     usage: stl2rsdocx input.stl|input.3mf output.rsdocx|output.step [options]
       --merge-coplanar   merge coplanar adjacent triangles into one planar face
+      --planes           merge planes through the recognition, as the app's "Flat faces" button; implies --merge-coplanar
       --cylinders        also recognise cylinders (fillets, holes, bosses); implies --merge-coplanar
       --spheres          also recognise spheres; implies --merge-coplanar
       --tori             also recognise tori (round fillets around an axis); implies --merge-coplanar
@@ -99,6 +107,9 @@ static void Usage() => Console.Error.WriteLine("""
       --dist-tol <mm>    max distance from face plane for merging (default 0.0001)
       --weld <mm>        vertices closer than this are merged (default 0.0001)
       --repair           clean the mesh first: duplicate/non-manifold triangles out, small loose pieces out, holes filled
+      --full-rounds      every recognition round searches the whole shell again (not only round its conflicts)
+      --min-radius <mm>  do not recognise cylinders, spheres and tori with a smaller radius (they stay facets)
+      --sharpen <mm>     --repair and first make roundings (fillets, chamfers) narrower than this sharp edges (FDM)
       --simplify <n>     --repair and simplify to at most n triangles (vertices stay original vertices)
       --repaired-stl <f> --repair and also write the cleaned mesh as STL
     """);

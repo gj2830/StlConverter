@@ -22,6 +22,12 @@ public static class Texts
             "Remove duplicate triangles and triangles on an edge that already has two neighbours (the hole this leaves is closed).",
         ["✂️  snippers weg"] = "✂️  remove scraps",
         ["Losse stukjes kleiner dan 1 % van het grootste stuk weghalen."] = "Remove loose pieces smaller than 1 % of the largest piece.",
+        ["Vorige selectie: de laatste klik, dubbelklik of penseelstreek terug (Ctrl+Z)"] = "Previous selection: the last click, double click or brush stroke undone (Ctrl+Z)",
+        ["📐  afrondingen scherp"] = "📐  sharpen roundings",
+        ["Kleine afrondingen en afschuiningen tussen twee vlakken worden een scherpe rand (voor een FDM-printer zijn ze te klein om te printen). Gaten en pennen blijven."] =
+            "Small roundings and chamfers between two faces become a sharp edge (too small for an FDM printer to print anyway). Holes and pins stay.",
+        ["Scherp maken tot"] = "Sharpen up to",
+        ["Afrondingen met een kleinere straal worden scherp"] = "Roundings with a smaller radius become sharp",
         ["Vereenvoudigen tot"] = "Simplify to",
         ["Minder driehoekjes (voor heel grote meshes). De hoekpunten blijven originele punten. Let op: te ver vereenvoudigen maakt rondingen moeilijker te herkennen."] =
             "Fewer triangles (for very large meshes). The vertices stay original points. Mind: simplifying too far makes roundings harder to recognise.",
@@ -56,8 +62,8 @@ public static class Texts
         ["Dubbelklik: helling mag afwijken"] = "Double-click: slope may differ",
         ["Dubbelklik selecteert de aansluitende driehoekjes waarvan de helling hooguit zoveel graden afwijkt van het aangeklikte driehoekje. 0° = alleen het platte vlak; voor een ronding bijvoorbeeld 45° of 90°."] =
             "Double-click selects the adjoining triangles whose slope differs at most this many degrees from the clicked triangle. 0° = only the flat face; for a rounding for example 45° or 90°.",
-        ["Dubbelklik = erbij selecteren · Ctrl = weghalen · Shift-klik = herkend vlak · Shift-dubbelklik = vlak openen (driehoekjes aanklikken) · Esc = wissen"] =
-            "Double-click = add to selection · Ctrl = remove · Shift-click = recognised face · Shift-double-click = open face (click triangles) · Esc = clear",
+        ["Dubbelklik = erbij selecteren · Ctrl = weghalen · Shift-klik = herkend vlak · Shift-dubbelklik = vlak openen (driehoekjes aanklikken) · Esc = wissen · Ctrl+Z = vorige selectie"] =
+            "Double-click = add to selection · Ctrl = remove · Shift-click = recognised face · Shift-double-click = open face (click triangles) · Esc = clear · Ctrl+Z = previous selection",
         ["Schuifjes tonen of verbergen"] = "Show or hide sliders",
         ["🎚️  FIJNAFSTELLING"] = "🎚️  FINE TUNING",
         ["↺ standaard"] = "↺ default",

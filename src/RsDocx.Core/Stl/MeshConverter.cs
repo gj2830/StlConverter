@@ -56,6 +56,10 @@ public sealed record MeshOptions
     public double FacetNormalToleranceDeg { get; init; } = 10;
     /// <summary>Cylinders and spheres with a larger radius (metres) are not accepted (nearly flat facets fit huge radii).</summary>
     public double MaxCurvedRadius { get; init; } = 1;
+    /// <summary>Cylinders, spheres and tori (by their tube) with a smaller radius (metres) are not recognised: they stay
+    /// facets. For a print where they are too small to make (an FDM nozzle is 0.4 mm): the 0.2 mm roundings of voetstuk
+    /// that sharpening leaves, where they meet a curved wall, gave a conflict per round, 60 rounds.</summary>
+    public double MinCurvedRadius { get; init; }
     /// <summary>A cylinder/sphere with more facets than this is not given up for one awkward edge; it is peeled there.</summary>
     public int PeelThreshold { get; init; } = 50;
     /// <summary>Minimum number of facet regions before a sphere is accepted.</summary>
@@ -78,6 +82,9 @@ public sealed record MeshOptions
     public double AbsorbTolerance { get; init; } = 1e-5;
     /// <summary>Planes along a cylinder whose normal is within this angle (degrees) of the cylinder normal are made tangent.</summary>
     public double TangentToleranceDeg { get; init; } = 3;
+    /// <summary>A round after a conflict only searches again round the triangles it changes; the surfaces found away from
+    /// them are kept as they were (false: every round searches the whole shell again).</summary>
+    public bool LocalRounds { get; init; } = true;
     /// <summary>Max recognition rounds (each round turns fitted surfaces that cannot be made exact into facets).</summary>
     public int RecognitionRounds { get; init; } = 300;
 
@@ -250,7 +257,9 @@ public static class MeshConverter
                     failed.Add(candidate);
                     return false;
                 }
-                // (only the user's groups: nothing is recognised, so the second variant would give the same)
+                // (only the user's groups: nothing is recognised, so the second variant would give the same; with only
+                // planes it does differ, the join tolerance also limits how far a vertex may move: voetstuk 109210 vs
+                // 109062 faces)
                 MeshOptions[] variants = opt.OnlyHints ? [opt] : [opt, opt with { CylinderJoinTolerance = 0 }];
                 var built = new (Brep.BrepBody? body, MeshToBrep? rec, string? error)[variants.Length];
                 (Brep.BrepBody?, MeshToBrep?, string?) BuildOne(MeshOptions o)
@@ -682,31 +691,44 @@ public static class MeshConverter
     private static void RemoveCollinear(List<(List<List<int>> loops, List<int[]> tris)> faces, List<Vec3> verts, MeshOptions opt, MeshStats stats)
     {
         double sinTol = Math.Sin(opt.AngleToleranceDeg * Math.PI / 180);
-        bool changed = true;
-        while (changed)
-        {
-            changed = false;
-            var nbrs = new Dictionary<int, HashSet<int>>();
-            foreach (var loop in faces.SelectMany(f => f.loops))
-                for (int i = 0; i < loop.Count; i++)
-                {
-                    int a = loop[i], b = loop[(i + 1) % loop.Count];
-                    if (!nbrs.TryGetValue(a, out var sa)) nbrs[a] = sa = new(); sa.Add(b);
-                    if (!nbrs.TryGetValue(b, out var sb)) nbrs[b] = sb = new(); sb.Add(a);
-                }
-            foreach (var (v, set) in nbrs)
+        // Always the first removable vertex in the order the loops list them, as when scanning from the start after every
+        // removal; that rescan made it quadratic (voetstuk: 2533 removals x 113000 faces, 100 s). Removing v only changes
+        // the neighbours of its two neighbours, and loops only get shorter (which never makes a vertex removable), so only
+        // those two are looked at again.
+        var loopsOf = new Dictionary<int, List<List<int>>>(); // (in first-appearance order: the scan order)
+        foreach (var loop in faces.SelectMany(f => f.loops))
+            foreach (int v in loop)
             {
-                if (set.Count != 2) continue;
-                var (u, w) = (set.First(), set.Last());
-                var du = verts[u] - verts[v]; var dw = verts[w] - verts[v];
-                if (du.Cross(dw).Length > sinTol * du.Length * dw.Length || du.Dot(dw) >= 0) continue;
-                // v lies on a straight edge between exactly two faces: drop it from both loops
-                if (faces.SelectMany(f => f.loops).Any(l => l.Contains(v) && l.Count <= 3)) continue;
-                foreach (var l in faces.SelectMany(f => f.loops)) l.Remove(v);
-                stats.CollinearRemoved++;
-                changed = true;
-                break;
+                if (!loopsOf.TryGetValue(v, out var ls)) loopsOf[v] = ls = new();
+                if (ls.Count == 0 || !ReferenceEquals(ls[^1], loop)) ls.Add(loop);
             }
+        var order = new Dictionary<int, int>(loopsOf.Count);
+        var queue = new PriorityQueue<int, int>();
+        foreach (int v in loopsOf.Keys) { order[v] = order.Count; queue.Enqueue(v, order[v]); }
+        HashSet<int> Neighbours(int v)
+        {
+            var set = new HashSet<int>();
+            foreach (var l in loopsOf[v])
+                for (int i = 0; i < l.Count; i++)
+                    if (l[i] == v) { set.Add(l[(i + l.Count - 1) % l.Count]); set.Add(l[(i + 1) % l.Count]); }
+            return set;
+        }
+        while (queue.TryDequeue(out int v, out _))
+        {
+            if (!loopsOf.TryGetValue(v, out var vLoops)) continue; // already removed
+            var set = Neighbours(v);
+            if (set.Count != 2) continue;
+            var (u, w) = (set.First(), set.Last());
+            var du = verts[u] - verts[v]; var dw = verts[w] - verts[v];
+            if (du.Cross(dw).Length > sinTol * du.Length * dw.Length || du.Dot(dw) >= 0) continue;
+            // v lies on a straight edge between exactly two faces: drop it from both loops
+            if (vLoops.Any(l => l.Count <= 3)) continue;
+            foreach (var l in vLoops) l.Remove(v);
+            vLoops.RemoveAll(l => !l.Contains(v));
+            if (vLoops.Count == 0) loopsOf.Remove(v);
+            stats.CollinearRemoved++;
+            queue.Enqueue(u, order[u]);
+            queue.Enqueue(w, order[w]);
         }
     }
 
