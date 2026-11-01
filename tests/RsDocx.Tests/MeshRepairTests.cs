@@ -85,6 +85,21 @@ public class MeshRepairTests
         static Vec3 Turn(Vec3 p) => new(1 - p.Y, p.X, p.Z);
     }
 
+    /// <summary>Copies of a bowtie vertex are moved apart a little, or the STL joins them again; the copies of an edge
+    /// between touching parts are not (the conversion pairs that edge again), or the faces round them bend out of their
+    /// planes (lego_Display: 145 triangles).</summary>
+    [Fact]
+    public void Touching_parts_keep_their_corners_when_a_bowtie_elsewhere_is_split()
+    {
+        var upper = Box(1, new Vec3(0, 0, 1)).Select(t => new StlTriangle(new(1 - t.A.Y, t.A.X, t.A.Z), new(1 - t.B.Y, t.B.X, t.B.Z), new(1 - t.C.Y, t.C.X, t.C.Z))).ToList();
+        // two boxes meeting in one corner (3, 3, 3): a bowtie
+        var tris = new List<StlTriangle>([.. Box(), .. upper, .. Box(1, new Vec3(2, 2, 2)), .. Box(1, new Vec3(3, 3, 3))]);
+        var fixedStl = MeshRepair.Repair(File(tris), new MeshRepairOptions(), out var s);
+        Assert.True(s.BowtiesSplit > 0);
+        var corners = tris.SelectMany(t => new[] { t.A, t.B, t.C }).ToHashSet();
+        Assert.All(fixedStl.Triangles.SelectMany(t => new[] { t.A, t.B, t.C }).Where(p => p.X <= 1.5), p => Assert.Contains(p, corners));
+    }
+
     [Fact]
     public void A_T_junction_crack_is_closed_with_proper_triangles()
     {

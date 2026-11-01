@@ -62,6 +62,39 @@ public class SharpenFilletsTests
         Assert.All(body.Vertices, v => Assert.All(new[] { v.X, v.Y, v.Z }, x => Assert.Equal(0.005, Math.Abs(x), 9)));
     }
 
+    /// <summary>lego_Display: a 1 x 8 plate, 3.2 mm thick, hollow underneath (a pocket 1.6 mm deep) with a rim 1.6 mm
+    /// wide round it. The rim and the pocket's walls meet their neighbours square: they are faces, not roundings, and
+    /// stay under a limit of 2 mm.</summary>
+    [Fact]
+    public void A_narrow_rim_with_square_walls_stays()
+    {
+        var tris = new List<StlTriangle>();
+        void Quad(Vec3 a, Vec3 b, Vec3 c, Vec3 d, Vec3 n)
+        {
+            if ((b - a).Cross(c - a).Dot(n) < 0) (b, d) = (d, b);
+            tris.Add(new(a, b, c)); tris.Add(new(a, c, d));
+        }
+        const double X = 32, Y = 4, x = 30.4, y = 2.4, top = 0.8, ceiling = -0.8, bottom = -2.4;
+        Vec3 up = new(0, 0, 1), down = new(0, 0, -1);
+        Quad(new(-X, -Y, top), new(X, -Y, top), new(X, Y, top), new(-X, Y, top), up);
+        Quad(new(-x, -y, ceiling), new(x, -y, ceiling), new(x, y, ceiling), new(-x, y, ceiling), down);
+        foreach (var s in new[] { 1.0, -1.0 })
+        {
+            Quad(new(-X, s * Y, bottom), new(X, s * Y, bottom), new(X, s * Y, top), new(-X, s * Y, top), new(0, s, 0));
+            Quad(new(s * X, -Y, bottom), new(s * X, Y, bottom), new(s * X, Y, top), new(s * X, -Y, top), new(s, 0, 0));
+            Quad(new(-x, s * y, bottom), new(x, s * y, bottom), new(x, s * y, ceiling), new(-x, s * y, ceiling), new(0, -s, 0));
+            Quad(new(s * x, -y, bottom), new(s * x, y, bottom), new(s * x, y, ceiling), new(s * x, -y, ceiling), new(-s, 0, 0));
+            // the rim, a trapezium on each side
+            Quad(new(-X, s * Y, bottom), new(X, s * Y, bottom), new(x, s * y, bottom), new(-x, s * y, bottom), down);
+            Quad(new(s * X, -Y, bottom), new(s * X, Y, bottom), new(s * x, y, bottom), new(s * x, -y, bottom), down);
+        }
+        var stl = File(tris);
+        Assert.Equal(11, MeshConverter.Convert(stl, new MeshOptions { MergeCoplanar = true }, out _).Single().Faces.Count);
+        var kept = MeshRepair.Repair(stl, new MeshRepairOptions { SharpenBelow = 2 }, out var rs);
+        Assert.Equal(0, rs.Sharpened);
+        Assert.Equal(11, MeshConverter.Convert(kept, new MeshOptions { MergeCoplanar = true }, out _).Single().Faces.Count);
+    }
+
     [Theory]
     [InlineData(0.6, 0.5)]
     [InlineData(1, 0.5)]

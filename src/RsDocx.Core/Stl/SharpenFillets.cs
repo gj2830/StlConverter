@@ -19,6 +19,12 @@ public static class SharpenFillets
     /// rounded by 1 mm in 12 strips, and over so small an angle the radius estimate is mostly tessellation noise).</summary>
     private const double ParallelDeg = 30;
 
+    /// <summary>An edge bending this much (degrees) or more is an edge of the part itself, never inside a rounding: a
+    /// chamfer on a square edge bends 45 degrees at each side, the strips of a fillet less. A narrow face with walls
+    /// standing square on it is a face (lego_Display: the 1.6 mm rim and walls round the hollow underside of a plate were
+    /// made sharp, and the walls went).</summary>
+    private const double SharpDeg = 80;
+
     /// <summary>Where each vertex goes (null: it stays).</summary>
     /// <param name="verts">Vertex positions (an index no triangle uses is ignored).</param>
     /// <param name="maxSize">Roundings narrower than this (STL units) become sharp; the search along the surface reaches
@@ -101,6 +107,7 @@ public static class SharpenFillets
             areaOf[id] = area;
         }
         double ToLine(Vec3 p, Vec3 a, Vec3 b) { var d = (b - a).Normalized(); var q = p - a; return (q - d * q.Dot(d)).Length; }
+        double square = SharpDeg * Math.PI / 180;
         var fastLen = new double[pieces.Count];
         foreach (var ((a, b), ts) in edgeTris)
         {
@@ -109,7 +116,7 @@ public static class SharpenFillets
             if (ra < 0 || rb < 0 || ra == rb) continue;
             double angle = Math.Acos(Math.Clamp(planes[ra].n.Dot(planes[rb].n), -1, 1));
             double da = ToLine(centre[ra], verts[a], verts[b]), db = ToLine(centre[rb], verts[a], verts[b]);
-            if (angle / (2 * Math.Min(da, db)) <= 1 / maxSize) continue;
+            if (angle >= square || angle / (2 * Math.Min(da, db)) <= 1 / maxSize) continue;
             double len = (verts[b] - verts[a]).Length;
             if (da <= db || da <= maxSize / 2) fastLen[ra] += len;
             if (db <= da || db <= maxSize / 2) fastLen[rb] += len;
@@ -130,7 +137,10 @@ public static class SharpenFillets
             .ToDictionary(g => g.Key, g => g.ToList());
         bool TurnsAcross(int id)
         {
-            if (!sides.TryGetValue(id, out var nb) || nb.Count < 2) return false;
+            if (!sides.TryGetValue(id, out var all)) return false;
+            // (a wall standing square on it does not turn it: its edge with that wall is an edge of the part)
+            var nb = all.Where(o => Math.Acos(Math.Clamp(planes[id].n.Dot(planes[o].n), -1, 1)) < square).ToList();
+            if (nb.Count < 2) return false;
             double turn = 0;
             for (int i = 0; i < nb.Count; i++)
                 for (int j = i + 1; j < nb.Count; j++)

@@ -429,7 +429,22 @@ public static class MeshRepair
             if (!at.TryGetValue((p.x, p.y, p.z), out var l)) at[(p.x, p.y, p.z)] = l = new List<int>(1);
             l.Add(v);
         }
-        foreach (var group in at.Values.Where(l => l.Count > 1))
+        // copies that also have neighbours at one position lie along a shared edge: parts touching there, split by
+        // TouchingParts, which the conversion pairs in the same way. They stay where they are (moved, they bent the faces
+        // round them out of their planes).
+        bool AlongEdge(List<int> group)
+        {
+            var seen = new Dictionary<(double, double, double), int>();
+            foreach (int v in group)
+                foreach (int w in mesh.VtxVerticesItr(v))
+                {
+                    var q = mesh.GetVertex(w);
+                    if (seen.TryGetValue((q.x, q.y, q.z), out int other) && other != v) return true;
+                    seen[(q.x, q.y, q.z)] = v;
+                }
+            return false;
+        }
+        foreach (var group in at.Values.Where(l => l.Count > 1 && !AlongEdge(l)))
             for (int i = 0; i < group.Count; i++)
             {
                 // each copy a different distance (2, 5, 8 ... tolerances): two fans on the same side would otherwise
