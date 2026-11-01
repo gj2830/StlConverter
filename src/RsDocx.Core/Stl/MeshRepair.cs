@@ -29,7 +29,7 @@ public sealed record MeshRepairOptions
 
 public sealed class MeshRepairStats
 {
-    public int Sharpened, SharpCollapsed, InputTriangles, DegenerateRemoved, DuplicatesRemoved, NonManifoldRemoved, PiecesRemoved, PieceTrianglesRemoved,
+    public int Sharpened, SharpCollapsed, InputTriangles, TouchingSplit, DegenerateRemoved, DuplicatesRemoved, NonManifoldRemoved, PiecesRemoved, PieceTrianglesRemoved,
         HolesFilled, FillTriangles, HolesLeft, BowtiesSplit, FlatFixed, FlatLeft, FoldsRemoved, FoldsLeft, TwistsRemoved, OutputTriangles;
 
     /// <summary>Diagnostics: vertices that share their position with another one, after each step.</summary>
@@ -42,7 +42,7 @@ public sealed class MeshRepairStats
     public int OpenEdges;
 
     public override string ToString() => string.Create(CultureInfo.InvariantCulture,
-        $"{(Sharpened > 0 ? $"{Sharpened} vertices of small roundings moved onto sharp edges ({SharpCollapsed} edges collapsed), " : "")}{InputTriangles} triangles in, {DegenerateRemoved} degenerate, {DuplicatesRemoved} duplicates and {NonManifoldRemoved} non-manifold removed, " +
+        $"{(Sharpened > 0 ? $"{Sharpened} vertices of small roundings moved onto sharp edges ({SharpCollapsed} edges collapsed), " : "")}{InputTriangles} triangles in, {(TouchingSplit > 0 ? $"{TouchingSplit} edges between touching parts split, " : "")}{DegenerateRemoved} degenerate, {DuplicatesRemoved} duplicates and {NonManifoldRemoved} non-manifold removed, " +
         $"{PiecesRemoved} small pieces ({PieceTrianglesRemoved} triangles) removed, {HolesFilled} holes filled ({FillTriangles} triangles), " +
         $"{HolesLeft} holes left, {TwistsRemoved} twisted triangles removed, {BowtiesSplit} bowtie vertices split, {FoldsRemoved} folded triangles removed ({string.Join("/", FoldRounds)}; {FoldsLeft} folded edges left), {FlatFixed} flat triangles flipped away ({FlatLeft} left), {OutputTriangles} triangles out, {OpenEdges} open edges");
 }
@@ -85,7 +85,7 @@ public static class MeshRepair
         Dup("build");
         FixFlat(mesh, opt.WeldTolerance, stats);
         Dup("flat");
-        if (opt.SmallPieceFraction > 0) RemoveSmallPieces(mesh, opt.SmallPieceFraction, stats);
+        if (opt.SmallPieceFraction > 0) RemoveSmallPieces(mesh, opt.SmallPieceFraction, opt.WeldTolerance, stats);
         // consistent orientation before filling: around a hole next to a flipped patch the boundary edges do not join
         // into loops (minion+peaky: 2500 open edges left in "open spans")
         new MeshRepairOrientation(mesh).OrientComponents();
@@ -204,10 +204,13 @@ public static class MeshRepair
             if (opt.FixNonManifold && !seen.Add((s[0], s[1], s[2]))) { stats.DuplicatesRemoved++; continue; }
             tris.Add(new Index3i(a, b, c));
         }
+        // (the copies stay at the same position: the conversion pairs such edges in the same way)
+        var corners = tris.Select(t => new[] { t.a, t.b, t.c }).ToList();
+        stats.TouchingSplit = TouchingParts.Split(v => V(mesh.GetVertex(v)), corners, v => mesh.AppendVertex(mesh.GetVertex(v)));
+        tris = corners.Select(c => new Index3i(c[0], c[1], c[2])).ToList();
 
         // triangles on edges used more than twice go last: the clean surface around them gets in first
         var count = new Dictionary<(int, int), int>();
-        static (int, int) E(int a, int b) => a < b ? (a, b) : (b, a);
         foreach (var t in tris) { foreach (var e in new[] { E(t.a, t.b), E(t.b, t.c), E(t.c, t.a) }) count[e] = count.GetValueOrDefault(e) + 1; }
         bool Bad(Index3i t) => count[E(t.a, t.b)] > 2 || count[E(t.b, t.c)] > 2 || count[E(t.c, t.a)] > 2;
         foreach (var t in tris.Where(t => !Bad(t)).Concat(tris.Where(Bad)))
@@ -223,6 +226,8 @@ public static class MeshRepair
         MeshEditor.RemoveUnusedVertices(mesh);
         return mesh;
     }
+
+    private static (int, int) E(int a, int b) => a < b ? (a, b) : (b, a);
 
     /// <summary>The longest edge of a triangle whose height on it is below tol (a corner on the opposite edge), else -1.</summary>
     private static int Flat(DMesh3 mesh, int t, double tol)
@@ -358,16 +363,47 @@ public static class MeshRepair
 
     private static int CountFolds(DMesh3 mesh) => Folds(mesh).Count();
 
-    private static void RemoveSmallPieces(DMesh3 mesh, double fraction, MeshRepairStats stats)
+    /// <summary>
+    /// Small loose pieces go, unless they rest on a piece that stays: an open piece whose whole rim lies on that
+    /// surface, or a closed one with at least three corners on it. Those are parts of a model built from overlapping
+    /// parts, as a slicer joins them (lego_Display: 196 studs and tubes, open cylinders standing on the plates, were 90 % of
+    /// the triangles and all went as scraps); their rims are filled after.
+    /// </summary>
+    private static void RemoveSmallPieces(DMesh3 mesh, double fraction, double tol, MeshRepairStats stats)
     {
         var comps = new MeshConnectedComponents(mesh);
         comps.FindConnectedT();
         if (comps.Count < 2) return;
         var areas = comps.Components.Select(c => c.Indices.Sum(t => mesh.GetTriArea(t))).ToList();
         double largest = areas.Max();
+        var piece = new int[mesh.MaxTriangleID];
+        for (int i = 0; i < comps.Count; i++) foreach (int t in comps[i].Indices) piece[t] = i;
+        var keep = Enumerable.Range(0, comps.Count).Select(i => areas[i] >= fraction * largest).ToArray();
+        var tree = new DMeshAABBTree3(mesh, true);
+        // the corners that must touch: the rim of an open piece, all corners of a closed one (three are enough)
+        var probe = comps.Components.Select(c =>
+        {
+            var verts = c.Indices.SelectMany(t => mesh.GetTriangle(t).array).Distinct().ToList();
+            var rim = verts.Where(mesh.IsBoundaryVertex).ToList();
+            return (verts: rim.Count > 0 ? rim : verts, need: rim.Count > 0 ? rim.Count : Math.Min(3, verts.Count));
+        }).ToList();
+        // (a part can rest on a small part that rests on a big one)
+        for (bool grew = true; grew;)
+        {
+            grew = false;
+            for (int i = 0; i < comps.Count; i++)
+            {
+                if (keep[i]) continue;
+                tree.TriangleFilterF = t => piece[t] != i && keep[piece[t]];
+                int on = 0;
+                foreach (int v in probe[i].verts)
+                    if (tree.FindNearestTriangle(mesh.GetVertex(v), 10 * tol) >= 0 && ++on >= probe[i].need) break;
+                if (on >= probe[i].need) keep[i] = grew = true;
+            }
+        }
         var editor = new MeshEditor(mesh);
         for (int i = 0; i < comps.Count; i++)
-            if (areas[i] < fraction * largest)
+            if (!keep[i])
             {
                 stats.PiecesRemoved++;
                 stats.PieceTrianglesRemoved += comps[i].Indices.Length;

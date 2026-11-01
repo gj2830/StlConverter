@@ -280,9 +280,32 @@ public class CylinderRecognitionTests
         var opt = new MeshOptions { MergeCoplanar = true, RecognizeCylinders = true, RecognizeSpheres = true, RecognizeTori = true };
         MeshConverter.ConvertToBrep(stl, opt, out var all);
         Assert.True(all.Cylinders > 0);
-        // (every rounding of this part is far smaller than half a metre)
+        // (every rounding of this part is far smaller than half a metre; holes that go all round stay cylinders)
         var bodies = MeshConverter.ConvertToBrep(stl, opt with { MinCurvedRadius = 0.5 }, out var none);
-        Assert.Equal(0, none.Cylinders + none.Spheres + none.Tori);
+        Assert.Equal(0, none.Spheres + none.Tori);
+        Assert.True(none.Cylinders < all.Cylinders, $"{none.Cylinders} of {all.Cylinders} cylinders left");
+        RsDocxComposer.Compose(bodies); // strict validation inside
+    }
+
+    /// <summary>LCD_frame: its screw holes (radius below 2 mm) stayed facets under "roundings sharp". The minimum radius
+    /// is for roundings (Spoelhouder above); a pin or hole that goes all round is recognised whatever its size.</summary>
+    [Fact]
+    public void A_thin_pin_is_a_cylinder_below_the_minimum_radius()
+    {
+        // a pin of radius 1 mm, 48 sides, 4 mm high; corners in float, as an STL has them
+        const int n = 48;
+        Vec3 P(int i, double z) => new((float)(20 + Math.Cos(2 * Math.PI * i / n)), (float)Math.Sin(2 * Math.PI * i / n), z);
+        var tris = new List<StlTriangle>();
+        for (int i = 0; i < n; i++)
+        {
+            int j = (i + 1) % n;
+            tris.Add(new(P(i, 0), P(j, 0), P(j, 4))); tris.Add(new(P(i, 0), P(j, 4), P(i, 4)));
+            tris.Add(new(new(20, 0, 0), P(j, 0), P(i, 0))); tris.Add(new(new(20, 0, 4), P(i, 4), P(j, 4)));
+        }
+        var stl = new StlFile { Header = "", Binary = true, Triangles = tris };
+        var opt = new MeshOptions { MergeCoplanar = true, RecognizeCylinders = true, MinCurvedRadius = 0.002 };
+        var bodies = MeshConverter.ConvertToBrep(stl, opt, out var stats);
+        Assert.Equal(1, stats.Cylinders);
         RsDocxComposer.Compose(bodies); // strict validation inside
     }
 

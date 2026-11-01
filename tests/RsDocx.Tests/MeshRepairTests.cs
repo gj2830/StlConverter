@@ -56,6 +56,35 @@ public class MeshRepairTests
         Assert.Equal(12, fixedStl.Triangles.Count);
     }
 
+    /// <summary>lego_Display: the studs are open cylinders standing on the plate, each far below 1 % of the largest
+    /// piece; they are parts, not scraps. A loose open piece of the same size still goes.</summary>
+    [Fact]
+    public void A_small_open_piece_standing_on_a_big_one_is_kept_and_closed()
+    {
+        var stud = Box(0.05, new Vec3(0.3, 0.6, 1)); stud.RemoveRange(0, 2); // bottom open, on the top of the box
+        var loose = Box(0.05, new Vec3(3, 3, 3)); loose.RemoveRange(0, 2);
+        var fixedStl = MeshRepair.Repair(File([.. Box(), .. stud, .. loose]), new MeshRepairOptions(), out var s);
+        Assert.Equal(1, s.PiecesRemoved);
+        Assert.Equal(0, s.OpenEdges);
+        Assert.Equal(12 + 12, fixedStl.Triangles.Count);
+    }
+
+    /// <summary>lego_Display: a plate against a box with the same outline, the contact faces triangulated differently,
+    /// so four triangles share every edge of it. The parts are split apart there instead of losing triangles.</summary>
+    [Fact]
+    public void Boxes_touching_along_a_face_stay_two_whole_boxes()
+    {
+        // the upper box turned a quarter about z: its bottom diagonal crosses the top diagonal of the lower one
+        var upper = Box(1, new Vec3(0, 0, 1)).Select(t => new StlTriangle(Turn(t.A), Turn(t.B), Turn(t.C))).ToList();
+        var fixedStl = MeshRepair.Repair(File([.. Box(), .. upper]), new MeshRepairOptions(), out var s);
+        Assert.Equal(4, s.TouchingSplit);
+        Assert.Equal(0, s.NonManifoldRemoved + s.DuplicatesRemoved + s.HolesFilled);
+        Assert.Equal(0, s.OpenEdges);
+        Assert.Equal(24, fixedStl.Triangles.Count);
+        Assert.Equal(12, Faces(fixedStl));
+        static Vec3 Turn(Vec3 p) => new(1 - p.Y, p.X, p.Z);
+    }
+
     [Fact]
     public void A_T_junction_crack_is_closed_with_proper_triangles()
     {

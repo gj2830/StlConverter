@@ -1024,7 +1024,7 @@ public sealed class MeshToBrep
                 origin = o2; radius = r2;
             }
         }
-        if (cluster.Count < _opt.CylinderMinStrips || radius > _opt.MaxCurvedRadius || radius < _opt.MinCurvedRadius) return null;
+        if (cluster.Count < _opt.CylinderMinStrips || radius > _opt.MaxCurvedRadius) return null;
 
         // phase 2: the cylinder is fixed now; also take neighbouring facets whose shared edges are not along the axis
         // (zig-zag triangles where both rims are divided differently) and vertices slightly off the circle
@@ -1057,6 +1057,9 @@ public sealed class MeshToBrep
         foreach (int r1 in cluster.Where(r => !IsSliver(_regions[r]))) foreach (int r2 in cluster.Where(r => !IsSliver(_regions[r])))
             span = Math.Max(span, Math.Acos(Math.Clamp(_regions[r1].N.Dot(_regions[r2].N), -1, 1)));
         if (span * 180 / Math.PI < _opt.CylinderMinSpanDeg) return null;
+        // the minimum radius is for roundings too small to print; a hole or pin that goes all round is no rounding and
+        // is recognised whatever its size (LCD_frame: its screw holes stayed facets under "roundings sharp", 2 mm)
+        if (radius < _opt.MinCurvedRadius && !GoesRound(cluster.Where(r => !IsSliver(_regions[r])).Select(r => _regions[r].N), axis)) return null;
         // a column of sphere facets also fits a (short) cylinder: reject when a sphere fits much better
         var all = Pts();
         FitCircle(all, axis, out _, out _, out double cylRes);
@@ -1066,6 +1069,18 @@ public sealed class MeshToBrep
             return null;
         }
         return (cluster, origin, radius, hollow);
+    }
+
+    /// <summary>The normals of a cylinder's strips go all round its axis: no gap of half a turn or more between them.</summary>
+    private static bool GoesRound(IEnumerable<Vec3> normals, Vec3 axis)
+    {
+        var u = axis.Cross(Math.Abs(axis.X) < 0.9 ? new Vec3(1, 0, 0) : new Vec3(0, 1, 0)).Normalized();
+        var v = axis.Cross(u);
+        var angles = normals.Select(n => Math.Atan2(n.Dot(v), n.Dot(u))).Order().ToList();
+        if (angles.Count < 3) return false;
+        double gap = angles[0] + 2 * Math.PI - angles[^1];
+        for (int i = 1; i < angles.Count; i++) gap = Math.Max(gap, angles[i] - angles[i - 1]);
+        return gap < Math.PI;
     }
 
     /// <summary>Algebraic least-squares sphere x^2+y^2+z^2 + Dx + Ey + Fz + G = 0, then max |dist - r|.</summary>

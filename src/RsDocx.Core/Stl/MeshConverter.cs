@@ -483,6 +483,8 @@ public static class MeshConverter
             sourceOf[tri] = si;
         }
         stats.WeldedVertices = verts.Count;
+        // parts touching along an edge become separate shells (their corners on such edges are copied)
+        TouchingParts.Split(v => verts[v], tris, v => { verts.Add(verts[v]); return verts.Count - 1; });
 
         // 2. edge -> triangles, manifold check
         var edgeTris = new Dictionary<(int, int), List<int>>();
